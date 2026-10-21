@@ -7,6 +7,7 @@ import (
 	"MrRSS/internal/handlers/core"
 	customcss "MrRSS/internal/handlers/custom_css"
 	freshrssHandler "MrRSS/internal/handlers/freshrss"
+	foloHandler "MrRSS/internal/handlers/folo"
 	media "MrRSS/internal/handlers/media"
 	networkhandlers "MrRSS/internal/handlers/network"
 	opml "MrRSS/internal/handlers/opml"
@@ -78,4 +79,13 @@ func registerOtherRoutes(mux *http.ServeMux, h *core.Handler) {
 	mux.HandleFunc("/api/miniflux/sync", func(w http.ResponseWriter, r *http.Request) { freshrssHandler.HandleSync(h, w, r) })
 	mux.HandleFunc("/api/miniflux/sync-feed", func(w http.ResponseWriter, r *http.Request) { freshrssHandler.HandleSyncFeed(h, w, r) })
 	mux.HandleFunc("/api/miniflux/status", func(w http.ResponseWriter, r *http.Request) { freshrssHandler.HandleSyncStatus(h, w, r) })
+
+	// Folo
+	mux.HandleFunc("/api/folo/account", func(w http.ResponseWriter, r *http.Request) { foloHandler.HandleAccount(h, w, r) })
+	mux.HandleFunc("/api/folo/login/start", func(w http.ResponseWriter, r *http.Request) { foloHandler.HandleLoginStart(h, w, r) })
+	mux.HandleFunc("/api/folo/login/status", func(w http.ResponseWriter, r *http.Request) { foloHandler.HandleLoginStatus(h, w, r) })
+	mux.HandleFunc("/api/folo/login/complete", func(w http.ResponseWriter, r *http.Request) { foloHandler.HandleLoginComplete(h, w, r) })
+	mux.HandleFunc("/api/folo/logout", func(w http.ResponseWriter, r *http.Request) { foloHandler.HandleLogout(h, w, r) })
+	mux.HandleFunc("/api/folo/import", func(w http.ResponseWriter, r *http.Request) { foloHandler.HandleImport(h, w, r) })
+	mux.HandleFunc("/api/folo/sync", func(w http.ResponseWriter, r *http.Request) { foloHandler.HandleSync(h, w, r) })
 }

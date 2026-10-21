@@ -65,22 +65,14 @@ func HandleOPMLImport(h *core.Handler, w http.ResponseWriter, r *http.Request) {
 	log.Printf("Parsed %d feeds from OPML", len(feeds))
 
 	// Import feeds
-	imported := 0
-	for _, feed := range feeds {
-		_, err := h.DB.AddFeed(&feed)
-		if err != nil {
-			log.Printf("Error importing feed %s: %v", feed.URL, err)
-			continue
-		}
-		imported++
-	}
+	imported := ImportFeeds(r.Context(), h, feeds)
 
-	log.Printf("Successfully imported %d feeds", imported)
+	log.Printf("Successfully imported %d feeds", len(imported))
 
 	// Return success response
 	response.JSON(w, map[string]interface{}{
 		"success":  true,
-		"imported": imported,
+		"imported": len(imported),
 		"total":    len(feeds),
 	})
 }

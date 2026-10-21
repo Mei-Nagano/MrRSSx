@@ -92,6 +92,7 @@ export const settingsSearchKeys: Record<TabName, string[]> = {
   plugins: [
     'setting.rsshub.enabled',
     'setting.freshrss.integration',
+    'setting.folo.integration',
     'setting.plugins.notion.integration',
     'setting.plugins.obsidian.integration',
     'setting.plugins.siyuan.integration',

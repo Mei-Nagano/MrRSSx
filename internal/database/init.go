@@ -37,6 +37,11 @@ func (db *DB) Init() error {
 			return
 		}
 
+		// Initialize Folo entry mapping table
+		if err = InitFoloSyncTable(db.DB); err != nil {
+			return
+		}
+
 		// Initialize statistics table
 		if err = InitStatisticsTable(db.DB); err != nil {
 			return

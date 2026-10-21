@@ -885,6 +885,34 @@
       "encrypted": false,
       "frontend_key": "miniflux_last_sync_time"
     },
+    "folo_enabled": {
+      "type": "bool",
+      "default": false,
+      "category": "integrations",
+      "encrypted": false,
+      "frontend_key": "folo_enabled"
+    },
+    "folo_api_url": {
+      "type": "string",
+      "default": "https://api.folo.is",
+      "category": "integrations",
+      "encrypted": false,
+      "frontend_key": "folo_api_url"
+    },
+    "folo_web_url": {
+      "type": "string",
+      "default": "https://app.folo.is",
+      "category": "integrations",
+      "encrypted": false,
+      "frontend_key": "folo_web_url"
+    },
+    "folo_folder_mode": {
+      "type": "string",
+      "default": "category",
+      "category": "integrations",
+      "encrypted": false,
+      "frontend_key": "folo_folder_mode"
+    },
     "rsshub_enabled": {
       "type": "bool",
       "default": false,

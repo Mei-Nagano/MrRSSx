@@ -53,6 +53,10 @@ export interface SettingsData {
   default_view_mode: string;
   feed_drawer_expanded: boolean;
   feed_drawer_pinned: boolean;
+  folo_api_url: string;
+  folo_enabled: boolean;
+  folo_folder_mode: string;
+  folo_web_url: string;
   freshrss_api_password: string;
   freshrss_auto_sync_interval: number;
   freshrss_enabled: boolean;

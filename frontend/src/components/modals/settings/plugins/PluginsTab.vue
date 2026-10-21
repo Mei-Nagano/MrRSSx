@@ -10,6 +10,7 @@ import NotionSettings from './NotionSettings.vue';
 import SiYuanSettings from './SiYuanSettings.vue';
 import ZoteroSettings from './ZoteroSettings.vue';
 import ReaderIntegrationSettings from './ReaderIntegrationSettings.vue';
+import FoloIntegrationSettings from './FoloIntegrationSettings.vue';
 import RSSHubSettings from './RSSHubSettings.vue';
 
 interface Props {
@@ -78,6 +79,8 @@ onBeforeUnmount(() => window.removeEventListener('settings-updated', handleSaved
       :settings="settings"
       @update:settings="handleUpdateSettings"
     />
+
+    <FoloIntegrationSettings :settings="settings" @update:settings="handleUpdateSettings" />
 
     <RSSHubSettings :settings="settings" @update:settings="handleUpdateSettings" />
   </div>

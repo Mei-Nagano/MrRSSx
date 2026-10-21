@@ -3,7 +3,6 @@
 package opml
 
 import (
-	"context"
 	"io"
 	"log"
 	"net/http"
@@ -19,54 +18,6 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
-
-// saveFeedTags creates or finds tags by name and associates them with the feed
-func saveFeedTags(h *core.Handler, feedID int64, tags []models.Tag) error {
-	if len(tags) == 0 {
-		return nil
-	}
-
-	var tagIDs []int64
-	for _, tag := range tags {
-		// Check if tag already exists by name
-		existingTags, err := h.DB.GetTags()
-		if err != nil {
-			log.Printf("Error fetching tags: %v", err)
-			continue
-		}
-
-		var foundTagID int64
-		for _, existingTag := range existingTags {
-			if strings.EqualFold(existingTag.Name, tag.Name) {
-				foundTagID = existingTag.ID
-				break
-			}
-		}
-
-		// If tag doesn't exist, create it
-		if foundTagID == 0 {
-			newTag := &models.Tag{
-				Name:  tag.Name,
-				Color: tag.Color,
-			}
-			id, err := h.DB.AddTag(newTag)
-			if err != nil {
-				log.Printf("Error creating tag %s: %v", tag.Name, err)
-				continue
-			}
-			foundTagID = id
-		}
-
-		tagIDs = append(tagIDs, foundTagID)
-	}
-
-	// Associate tags with feed
-	if len(tagIDs) > 0 {
-		return h.DB.SetFeedTags(feedID, tagIDs)
-	}
-
-	return nil
-}
 
 // HandleOPMLImport handles OPML/JSON file import based on file extension.
 // @Summary      Import subscriptions from OPML/JSON
@@ -131,45 +82,7 @@ func HandleOPMLImport(h *core.Handler, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Import feeds synchronously so they appear in the sidebar immediately
-	var feedIDs []int64
-	for _, f := range feeds {
-		var feedID int64
-		var err error
-
-		// Check if feed has XPath configuration
-		if f.Type == "HTML+XPath" || f.Type == "XML+XPath" {
-			feedID, err = h.Fetcher.AddXPathSubscription(
-				f.URL, f.Category, f.Title, f.Type,
-				f.XPathItem, f.XPathItemTitle, f.XPathItemContent, f.XPathItemUri,
-				f.XPathItemAuthor, f.XPathItemTimestamp, f.XPathItemTimeFormat,
-				f.XPathItemThumbnail, f.XPathItemCategories, f.XPathItemUid,
-			)
-		} else {
-			feedID, err = h.Fetcher.ImportSubscription(f.Title, f.URL, f.Category)
-		}
-
-		if err != nil {
-			log.Printf("Error importing feed %s: %v", f.Title, err)
-			continue
-		}
-
-		// Save tags for the feed
-		if len(f.Tags) > 0 {
-			if err := saveFeedTags(h, feedID, f.Tags); err != nil {
-				log.Printf("Error saving tags for feed %s: %v", f.Title, err)
-				// Continue even if tag saving fails
-			}
-		}
-
-		feedIDs = append(feedIDs, feedID)
-	}
-
-	// Fetch articles for the newly imported feeds asynchronously with progress tracking
-	if len(feedIDs) > 0 {
-		go func() {
-			h.Fetcher.FetchFeedsByIDs(context.Background(), feedIDs)
-		}()
-	}
+	ImportFeeds(r.Context(), h, feeds)
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -326,45 +239,7 @@ func HandleOPMLImportDialog(h *core.Handler, w http.ResponseWriter, r *http.Requ
 	}
 
 	// Import feeds synchronously so they appear in the sidebar immediately
-	var feedIDs []int64
-	for _, f := range feeds {
-		var feedID int64
-		var err error
-
-		// Check if feed has XPath configuration
-		if f.Type == "HTML+XPath" || f.Type == "XML+XPath" {
-			feedID, err = h.Fetcher.AddXPathSubscription(
-				f.URL, f.Category, f.Title, f.Type,
-				f.XPathItem, f.XPathItemTitle, f.XPathItemContent, f.XPathItemUri,
-				f.XPathItemAuthor, f.XPathItemTimestamp, f.XPathItemTimeFormat,
-				f.XPathItemThumbnail, f.XPathItemCategories, f.XPathItemUid,
-			)
-		} else {
-			feedID, err = h.Fetcher.ImportSubscription(f.Title, f.URL, f.Category)
-		}
-
-		if err != nil {
-			log.Printf("Error importing feed %s: %v", f.Title, err)
-			continue
-		}
-
-		// Save tags for the feed
-		if len(f.Tags) > 0 {
-			if err := saveFeedTags(h, feedID, f.Tags); err != nil {
-				log.Printf("Error saving tags for feed %s: %v", f.Title, err)
-				// Continue even if tag saving fails
-			}
-		}
-
-		feedIDs = append(feedIDs, feedID)
-	}
-
-	// Fetch articles for the newly imported feeds asynchronously with progress tracking
-	if len(feedIDs) > 0 {
-		go func() {
-			h.Fetcher.FetchFeedsByIDs(context.Background(), feedIDs)
-		}()
-	}
+	ImportFeeds(r.Context(), h, feeds)
 
 	w.Header().Set("Content-Type", "application/json")
 	response.JSON(w, map[string]interface{}{
