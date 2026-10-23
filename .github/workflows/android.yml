@@ -37,22 +37,23 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install NDK
+      - name: Ensure Android SDK packages
         run: |
           set -euo pipefail
-          NDK_PACKAGE="$(sdkmanager --list \
-            | grep -oE 'ndk;29\.[0-9]+\.[0-9]+' \
-            | sort -V | tail -1)"
-          if [ -z "$NDK_PACKAGE" ]; then
-            echo "No NDK 29 package offered by sdkmanager" >&2
-            exit 1
+          # The runner image ships the SDK and its licences; the setup-android
+          # action is not used because it installs the retired "tools" package
+          # and fails. Pick its sdkmanager instead of relying on PATH.
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER="$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)"
           fi
-          echo "Installing $NDK_PACKAGE"
-          sdkmanager "$NDK_PACKAGE" > /dev/null
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_PACKAGE#ndk;}" >> "$GITHUB_ENV"
+          echo "Using $SDKMANAGER"
+          NDK_VERSION="29.0.14206865"
+          "$SDKMANAGER" --install \
+            "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;$NDK_VERSION" \
+            > /dev/null
+          # package.sh reads ANDROID_NDK_HOME first.
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
 
       - name: Install frontend dependencies
         working-directory: ./frontend
