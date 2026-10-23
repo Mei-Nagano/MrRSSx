@@ -100,7 +100,12 @@ func loadConfig(h *core.Handler) (integrationConfig, error) {
 		// The token lives outside the seeded settings keys, so a signed-out app
 		// simply has no row yet.
 	default:
-		return cfg, err
+		// The key is derived from the machine, so a token that no longer decrypts
+		// (hostname or OS changed, database copied) can never be used again.
+		// Reporting it as an error would answer every Folo endpoint — including
+		// the sign-in one — with 502, leaving the user no way back. Treat it as
+		// signed out instead and keep the row so a re-login simply overwrites it.
+		log.Printf("folo: stored session token is unreadable, treating as signed out: %v", err)
 	}
 	return cfg, nil
 }

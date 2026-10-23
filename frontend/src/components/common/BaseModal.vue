@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useModalClose } from '@/composables/ui/useModalClose';
+import { useAndroidBack, BACK_PRIORITY } from '@/composables/ui/useAndroidBack';
 
 interface Props {
   // Title
@@ -57,8 +59,19 @@ const emit = defineEmits<{
   close: [];
 }>();
 
+const { t } = useI18n();
+
 // Modal close handling
-useModalClose(() => handleClose(), props.zIndex);
+const { zIndex: resolvedZIndex } = useModalClose(() => handleClose(), props.zIndex);
+
+// Hardware back on Android mirrors ESC: it closes the dialog that is on top
+// instead of tearing down the sheet or screen underneath it. Registered per
+// dialog rather than once globally so a stacked dialog (a confirm over the
+// settings sheet) unwinds one layer at a time; the z-index keeps that order.
+useAndroidBack(() => {
+  handleClose();
+  return true;
+}, BACK_PRIORITY.dialog + resolvedZIndex);
 
 // Track if modal is open
 const isOpen = ref(true);
@@ -196,7 +209,8 @@ onUnmounted(() => {
         </div>
         <button
           v-if="closable && !loading"
-          class="text-text-secondary hover:text-text-primary transition-colors text-2xl cursor-pointer"
+          class="modal-close-btn text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
+          :aria-label="t('common.close')"
           :disabled="loading"
           @click="handleClose"
         >
@@ -226,6 +240,29 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* A bare `&times;` is 13px wide and 32px tall — the smallest thing in a dialog
+   and the one a thumb reaches for to get out. The glyph keeps its size; the box
+   around it grows to 40px on phones and settles back to the glyph on desktop. */
+.modal-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  font-size: 1.5rem;
+  line-height: 1;
+  border-radius: 4px;
+}
+
+@media (min-width: 640px) {
+  .modal-close-btn {
+    width: auto;
+    height: auto;
+    font-size: 1.5rem;
+  }
+}
+
 /* Desktop max-height for rounded modals */
 @media (min-width: 640px) {
   .rounded-2xl {

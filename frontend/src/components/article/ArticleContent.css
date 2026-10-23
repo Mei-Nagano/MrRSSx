@@ -1123,9 +1123,20 @@
     margin: 1.5em 0;
   }
 
-  /* Inline images on mobile */
-  .prose p img,
-  .prose li img {
+  /* Inline images on mobile. This has to stay narrow: an earlier version
+     matched every image inside a paragraph, which crushed ordinary article
+     illustrations to 1.25em (a 320x180 photo rendered 36x20) on any screen
+     below 640px. Only marks that are actually inline-sized are capped. */
+  .prose p img.emoji,
+  .prose p img.icon,
+  .prose p img[height='16'],
+  .prose p img[height='20'],
+  .prose p img[height='24'],
+  .prose li img.emoji,
+  .prose li img.icon,
+  .prose li img[height='16'],
+  .prose li img[height='20'],
+  .prose li img[height='24'] {
     max-height: 1.25em;
   }
 

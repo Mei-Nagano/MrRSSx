@@ -3,6 +3,7 @@
 package fileutil
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -92,6 +93,11 @@ func DefaultDataDir() (string, error) {
 					baseDir = filepath.Join(homeDir, ".local", "share")
 				}
 			}
+		case "android", "ios":
+			// Mobile sandboxes have no HOME or XDG directories. The app passes
+			// the platform-provided path to ConfigureDataDir before any data is
+			// opened, so reaching this point means that step was skipped.
+			return "", fmt.Errorf("no app data directory configured for %s", runtime.GOOS)
 		default:
 			baseDir = os.Getenv("HOME")
 			if baseDir != "" {

@@ -225,7 +225,7 @@ window.addEventListener('image-wheel-navigate', ((e: CustomEvent) => {
   <div
     role="dialog"
     aria-modal="true"
-    class="image-viewer-modal fixed inset-0 z-50 bg-black/90 flex flex-col p-4"
+    class="image-viewer-modal fixed inset-0 z-50 flex flex-col bg-black/90 px-4 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)]"
     data-image-viewer="true"
     @click="emit('close')"
   >
@@ -254,11 +254,11 @@ window.addEventListener('image-wheel-navigate', ((e: CustomEvent) => {
       </div>
 
       <!-- Center: Zoom controls and Action buttons -->
-      <div class="flex items-center justify-center gap-2">
+      <div class="flex items-center justify-center gap-1 sm:gap-2">
         <!-- Zoom controls (only for images) -->
         <template v-if="!isVideo">
           <button
-            class="px-2 py-1.5 rounded bg-black/50 hover:bg-black/70 text-white transition-all duration-200 hover:scale-105 active:scale-95"
+            class="viewer-icon-btn"
             :disabled="viewer.scale.value <= 0.5"
             :title="t('common.imageViewer.zoomOut')"
             @click="viewer.zoomOut"
@@ -266,14 +266,14 @@ window.addEventListener('image-wheel-navigate', ((e: CustomEvent) => {
             <PhMagnifyingGlassMinus :size="20" />
           </button>
           <button
-            class="px-2 py-1.5 rounded bg-black/50 hover:bg-black/70 text-white text-sm font-medium min-w-[60px] text-center transition-colors"
+            class="viewer-scale-btn"
             :title="t('common.imageViewer.resetZoom')"
             @click="viewer.resetView"
           >
             {{ Math.round(viewer.scale.value * 100) }}%
           </button>
           <button
-            class="px-2 py-1.5 rounded bg-black/50 hover:bg-black/70 text-white transition-all duration-200 hover:scale-105 active:scale-95"
+            class="viewer-icon-btn"
             :disabled="viewer.scale.value >= 5"
             :title="t('common.imageViewer.zoomIn')"
             @click="viewer.zoomIn"
@@ -285,7 +285,7 @@ window.addEventListener('image-wheel-navigate', ((e: CustomEvent) => {
         <!-- Action buttons -->
         <button
           v-if="!isVideo"
-          class="px-2 py-1.5 rounded bg-black/50 hover:bg-black/70 text-white transition-all duration-200 hover:scale-105 active:scale-95"
+          class="viewer-icon-btn"
           :title="t('common.contextMenu.copyImage')"
           @click="handleViewerAction('copyImage')"
         >
@@ -293,14 +293,14 @@ window.addEventListener('image-wheel-navigate', ((e: CustomEvent) => {
         </button>
         <button
           v-if="!isVideo"
-          class="px-2 py-1.5 rounded bg-black/50 hover:bg-black/70 text-white transition-all duration-200 hover:scale-105 active:scale-95"
+          class="viewer-icon-btn"
           :title="t('common.contextMenu.downloadImage')"
           @click="handleViewerAction('downloadImage')"
         >
           <PhDownloadSimple :size="20" />
         </button>
         <button
-          class="px-2 py-1.5 rounded bg-black/50 hover:bg-black/70 text-white transition-all duration-200 hover:scale-105 active:scale-95"
+          class="viewer-icon-btn"
           :title="
             article?.is_favorite
               ? t('article.imageGallery.actionUnfavorite')
@@ -318,11 +318,7 @@ window.addEventListener('image-wheel-navigate', ((e: CustomEvent) => {
 
       <!-- Right: Close button -->
       <div class="absolute right-0 top-0">
-        <button
-          class="w-8 h-8 bg-black/50 rounded-full text-white flex items-center justify-center transition-colors hover:bg-white hover:text-black focus-visible:bg-white focus-visible:text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black active:bg-white/80"
-          :aria-label="t('common.close')"
-          @click="emit('close')"
-        >
+        <button class="viewer-close-btn" :aria-label="t('common.close')" @click="emit('close')">
           <PhX :size="20" />
         </button>
       </div>
@@ -479,14 +475,14 @@ window.addEventListener('image-wheel-navigate', ((e: CustomEvent) => {
         </h2>
         <div class="flex items-center gap-2 shrink-0">
           <button
-            class="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-md text-sm whitespace-nowrap transition-colors duration-200"
+            class="min-h-10 whitespace-nowrap rounded-md bg-accent px-3 py-1.5 text-sm text-white transition-colors duration-200 hover:bg-accent-hover sm:min-h-0"
             @click="handleViewerAction('openOriginal')"
           >
             {{ t('article.action.viewOriginal') }}
           </button>
           <button
             v-if="!isVideo"
-            class="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-md text-sm whitespace-nowrap transition-all duration-200"
+            class="min-h-10 whitespace-nowrap rounded-md bg-white/10 px-3 py-1.5 text-sm text-white transition-all duration-200 hover:bg-white/20 sm:min-h-0"
             :title="t('article.action.viewArticle')"
             @click="handleViewerAction('openArticleDetail')"
           >
@@ -505,8 +501,25 @@ window.addEventListener('image-wheel-navigate', ((e: CustomEvent) => {
 </template>
 
 <style scoped>
+@reference "../../../../style.css";
+
 .image-viewer-modal button:not(:disabled) {
   cursor: pointer;
+}
+
+/* The viewer's controls were 32px — mouse-sized, and this is the one screen
+   where the only input is a thumb. Phones get 40px squares; the compact
+   padding returns from 640px up, where the bar can stay dense. */
+.viewer-icon-btn {
+  @apply flex h-10 w-10 shrink-0 items-center justify-center rounded bg-black/50 text-white transition-all duration-200 hover:scale-105 hover:bg-black/70 active:scale-95 sm:h-auto sm:w-auto sm:px-2 sm:py-1.5;
+}
+
+.viewer-scale-btn {
+  @apply flex h-10 min-w-[60px] shrink-0 items-center justify-center rounded bg-black/50 px-2 text-center text-sm font-medium text-white transition-colors hover:bg-black/70 sm:h-auto sm:py-1.5;
+}
+
+.viewer-close-btn {
+  @apply flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-white hover:text-black focus-visible:bg-white focus-visible:text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black active:bg-white/80 sm:h-8 sm:w-8;
 }
 
 /* Define keyframes for spinner animation */

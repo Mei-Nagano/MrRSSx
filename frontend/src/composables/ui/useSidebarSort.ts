@@ -1,6 +1,6 @@
 import { computed } from 'vue';
 import { useSettings } from '@/composables/core/useSettings';
-import { useAppStore } from '@/stores/app';
+import { useAppStore, type Filter } from '@/stores/app';
 import { useI18n } from 'vue-i18n';
 import type { Feed } from '@/types/models';
 
@@ -67,12 +67,13 @@ export function useSidebarSort() {
   const pinned = computed(() => new Set(readArray(settings.value.sidebar_pinned_items)));
   const isPinned = (key: string) => pinned.value.has(key);
   const counts = computed(() => {
-    const key = {
+    const keys: Partial<Record<Filter, string>> = {
       favorites: 'favorites',
       readLater: 'read_later_unread',
       unread: 'unread',
       imageGallery: 'images_unread',
-    }[store.currentFilter];
+    };
+    const key = keys[store.currentFilter];
     return key ? store.filterCounts[key] || {} : store.unreadCounts.feedCounts;
   });
   const categoryStats = computed(() => {

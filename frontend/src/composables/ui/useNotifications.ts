@@ -19,7 +19,7 @@ interface ConfirmDialogState extends ConfirmDialogOptions {
 }
 
 interface InputDialogState extends InputDialogOptions {
-  onConfirm: (string) => void;
+  onConfirm: (value: string) => void;
   onCancel: () => void;
 }
 

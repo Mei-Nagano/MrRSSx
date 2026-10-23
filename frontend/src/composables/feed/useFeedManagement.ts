@@ -14,7 +14,6 @@ export function useFeedManagement() {
    */
   async function handleImportOPML() {
     try {
-      console.log('Starting OPML import dialog...');
       const response = await fetch('/api/opml/import-dialog', {
         method: 'POST',
       });
@@ -28,12 +27,10 @@ export function useFeedManagement() {
       const result = await response.json();
 
       if (result.status === 'cancelled') {
-        console.log('OPML import cancelled by user');
         return;
       }
 
       if (result.status === 'success') {
-        console.log('OPML import successful:', result);
         window.showToast(t('modal.feed.feedAddedSuccess'), 'success');
         store.fetchFeeds();
         // Start polling for progress as the backend is now fetching articles for imported feeds
@@ -53,7 +50,6 @@ export function useFeedManagement() {
    */
   async function handleExportOPML() {
     try {
-      console.log('Starting OPML export dialog...');
       const response = await fetch('/api/opml/export-dialog', {
         method: 'POST',
       });
@@ -67,12 +63,10 @@ export function useFeedManagement() {
       const result = await response.json();
 
       if (result.status === 'cancelled') {
-        console.log('OPML export cancelled by user');
         return;
       }
 
       if (result.status === 'success') {
-        console.log('OPML export successful:', result);
         window.showToast(t('modal.opml.exportSuccess'), 'success');
       } else {
         console.error('OPML export failed:', result);

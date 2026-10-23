@@ -3,7 +3,7 @@ import type { Article } from '@/types/models';
 /**
  * Image gallery configuration constants
  */
-interface ImageGalleryConfig {
+export interface ImageGalleryConfig {
   /** Number of items to fetch per page */
   itemsPerPage: number;
   /** Distance from bottom (in pixels) to trigger infinite scroll */
@@ -25,7 +25,7 @@ export type MediaTypeFilter = 'all' | 'images' | 'videos';
 /**
  * Image viewer state
  */
-interface ImageViewerState {
+export interface ImageViewerState {
   /** Currently selected article */
   article: Article | null;
   /** All images from the current article */
@@ -45,18 +45,18 @@ interface ImageViewerState {
 /**
  * Context menu action types for images
  */
-type ImageAction =
+export type ImageAction =
   'toggleRead' | 'toggleFavorite' | 'copyTitle' | 'copyLink' | 'downloadImage' | 'openBrowser';
 
 /**
  * Navigation direction for image viewer
  */
-type NavigationDirection = 'prev' | 'next';
+export type NavigationDirection = 'prev' | 'next';
 
 /**
  * Thumbnail strip configuration
  */
-interface ThumbnailStripConfig {
+export interface ThumbnailStripConfig {
   /** Width of each thumbnail in pixels (64px w-16 + 8px gap-2 = 72px) */
   thumbnailWidth: number;
   /** Threshold for collapsing thumbnail strip */

@@ -167,7 +167,7 @@ describe('reader translation recovery', () => {
     const view = reader('<p>English paragraph</p>', summary);
     await vi.advanceTimersByTimeAsync(0);
     const summaryView = view.findComponent(ArticleSummary);
-    expect(summaryView.props('summaryResult').summary).toBe(summary);
+    expect((summaryView.props('summaryResult') as { summary: string }).summary).toBe(summary);
     expect(summaryView.props('isTranslatingSummary')).toBe(true);
     expect(
       mock.mock.calls.some(
@@ -175,7 +175,9 @@ describe('reader translation recovery', () => {
       )
     ).toBe(true);
     await vi.advanceTimersByTimeAsync(6000);
-    expect(summaryView.props('translatedSummary').text).toBe(`译文 ${summary}`);
+    expect((summaryView.props('translatedSummary') as { text: string }).text).toBe(
+      `译文 ${summary}`
+    );
     expect(summaryView.props('isTranslatingSummary')).toBe(false);
     expect(window.showToast).not.toHaveBeenCalled();
   });

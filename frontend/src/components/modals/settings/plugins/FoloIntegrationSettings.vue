@@ -65,23 +65,36 @@ function update(field: 'api_url' | 'web_url' | 'folder_mode', value: string) {
 async function fetchAccount() {
   try {
     const res = await fetch('/api/folo/account', { signal: controller.signal });
-    if (!res.ok) {
+    // 401 is the only answer that means "signed out". A 502 means the account
+    // could not be checked right now (offline, Folo unreachable), so keep the
+    // last known state instead of pretending the user was logged out.
+    if (res.status === 401) {
       account.value = null;
       return;
     }
+    if (!res.ok) return;
     const data = await res.json();
     account.value = { name: data.name || '', email: data.email || '' };
     lastImport.value = data.last_import_time || null;
     lastSync.value = data.last_sync_time || null;
     mappedCount.value = Number(data.mapped_count) || 0;
   } catch {
-    /* The status is refreshed when the tab is opened again. */
+    /* Aborted or offline; the status is refreshed when the tab is opened again. */
   }
 }
 
 function stopPolling() {
   if (poll) clearInterval(poll);
   poll = undefined;
+}
+
+// A rejected token means the stored session is gone (expired, revoked, or a
+// different account). Showing "signed in" after that is worse than a fresh
+// sign-in prompt, so the panel drops back to the signed-out state.
+function expireSession() {
+  account.value = null;
+  stopPolling();
+  signingIn.value = false;
 }
 
 async function request(path: string, init?: RequestInit) {
@@ -95,6 +108,24 @@ async function request(path: string, init?: RequestInit) {
 
 // The browser owns the actual sign-in, so the UI follows the loopback callback by
 // asking the backend what happened to it.
+async function checkLoginStatus() {
+  try {
+    const data = await request('/api/folo/login/status');
+    if (data.state === 'connected') {
+      stopPolling();
+      signingIn.value = false;
+      await fetchAccount();
+      window.showToast(t('setting.folo.signInSuccess'), 'success');
+    } else if (data.state === 'failed' || data.state === 'expired') {
+      stopPolling();
+      signingIn.value = false;
+      window.showToast(t('setting.folo.signInFailed'), 'error');
+    }
+  } catch {
+    /* Keep waiting; the attempt may still land. */
+  }
+}
+
 function watchLogin() {
   stopPolling();
   let ticks = 0;
@@ -105,21 +136,7 @@ function watchLogin() {
       signingIn.value = false;
       return;
     }
-    try {
-      const data = await request('/api/folo/login/status');
-      if (data.state === 'connected') {
-        stopPolling();
-        signingIn.value = false;
-        await fetchAccount();
-        window.showToast(t('setting.folo.signInSuccess'), 'success');
-      } else if (data.state === 'failed' || data.state === 'expired') {
-        stopPolling();
-        signingIn.value = false;
-        window.showToast(t('setting.folo.signInFailed'), 'error');
-      }
-    } catch {
-      /* Keep waiting; the attempt may still land. */
-    }
+    await checkLoginStatus();
   }, 2000);
 }
 
@@ -190,10 +207,12 @@ async function importSubscriptions() {
     store.pollProgress();
   } catch (error) {
     const code = error instanceof Error ? error.message : '';
-    window.showToast(
-      t(code === 'not_authenticated' ? 'setting.folo.accountRequired' : 'setting.folo.importFailed'),
-      'error',
-    );
+    if (code === 'not_authenticated') {
+      expireSession();
+      window.showToast(t('setting.folo.sessionExpired'), 'error');
+    } else {
+      window.showToast(t('setting.folo.importFailed'), 'error');
+    }
   } finally {
     busy.value = false;
     importing.value = false;
@@ -219,22 +238,39 @@ async function syncState() {
     window.dispatchEvent(new CustomEvent('refresh-articles'));
   } catch (error) {
     const code = error instanceof Error ? error.message : '';
-    window.showToast(
-      t(code === 'sync_busy' ? 'setting.folo.syncBusy' : 'setting.folo.syncFailed'),
-      'error',
-    );
+    if (code === 'not_authenticated') {
+      expireSession();
+      window.showToast(t('setting.folo.sessionExpired'), 'error');
+    } else {
+      window.showToast(
+        t(code === 'sync_busy' ? 'setting.folo.syncBusy' : 'setting.folo.syncFailed'),
+        'error',
+      );
+    }
   } finally {
     busy.value = false;
     syncing.value = false;
   }
 }
 
+// Returning from the system browser (or from another app) is when the account and
+// sign-in state may have changed behind our back. WebView timers are throttled
+// while the page is hidden, so ask immediately instead of waiting for the next
+// poll tick.
+function onVisibilityChange() {
+  if (document.visibilityState !== 'visible' || !enabled.value) return;
+  if (signingIn.value) void checkLoginStatus();
+  else void fetchAccount();
+}
+
 onMounted(() => {
   if (enabled.value) void fetchAccount();
+  document.addEventListener('visibilitychange', onVisibilityChange);
 });
 onBeforeUnmount(() => {
   controller.abort();
   stopPolling();
+  document.removeEventListener('visibilitychange', onVisibilityChange);
 });
 </script>
 
@@ -253,7 +289,7 @@ onBeforeUnmount(() => {
           <div class="text-sm font-medium sm:mb-1 sm:text-base">
             {{ t('setting.folo.integration') }}
           </div>
-          <div class="truncate text-xs text-text-secondary">
+          <div class="text-xs text-text-secondary">
             {{ t('setting.folo.integrationDesc') }}
           </div>
         </div>
@@ -312,7 +348,7 @@ onBeforeUnmount(() => {
         <template #extraInfo>
           {{ t('setting.folo.lastSync') }}:
           {{ lastSync ? new Date(lastSync).toLocaleString() : t('setting.folo.never') }}
-          <span class="text-xs text-text-secondary">
+          <span class="whitespace-nowrap text-xs text-text-secondary">
             · {{ t('setting.folo.mapped', { count: mappedCount }) }}
           </span>
         </template>
@@ -326,13 +362,14 @@ onBeforeUnmount(() => {
         :icon="PhKey"
         :title="t('setting.folo.manualTitle')"
         :description="t('setting.folo.manualDesc')"
+        stack-narrow
       >
-        <div class="flex items-center gap-2">
+        <div class="flex w-full items-center gap-2 lg:w-auto">
           <InputControl
             type="password"
             :model-value="credential"
             :placeholder="t('setting.folo.tokenPlaceholder')"
-            width="md"
+            width="w-full lg:w-48"
             @update:model-value="credential = String($event)"
           />
           <button class="btn-secondary" :disabled="busy || !credential.trim()" @click="useToken">
@@ -348,6 +385,7 @@ onBeforeUnmount(() => {
       >
         <SelectControl
           :model-value="folderMode"
+          width="md"
           :options="[
             { value: 'category', label: t('setting.folo.folderModeCategory') },
             { value: 'view', label: t('setting.folo.folderModeView') },

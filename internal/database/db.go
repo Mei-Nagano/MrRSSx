@@ -3,13 +3,10 @@ package database
 import (
 	"database/sql"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	_ "modernc.org/sqlite"
 )
 
 // SQLite connection and page-cache limits.
@@ -51,23 +48,18 @@ func NewDB(dataSourceName string) (*DB, error) {
 	if dataSourceName != ":memory:" && !strings.HasPrefix(dataSourceName, "file:") {
 		dataSourceName = "file:" + strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23").Replace(filepath.ToSlash(dataSourceName))
 	}
-	// Add busy_timeout to prevent "database is locked" errors
-	// Also enable WAL mode for better concurrency
-	// Set a bounded per-connection page cache and synchronous=NORMAL
-	// Enable foreign_keys to make ON DELETE CASCADE work (disabled by default in SQLite)
-	pragmas := "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)" +
-		"&_pragma=cache_size(-" + strconv.Itoa(sqliteCacheSizeKiB) + ")" +
-		"&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)"
+	// busy_timeout prevents "database is locked" errors, WAL gives readers
+	// concurrency next to the single writer, cache_size bounds the page cache,
+	// and foreign_keys makes ON DELETE CASCADE work (off by default).
+	// The pragma syntax differs per driver, so it comes from driver_*.go.
+	pragmas := strings.Join(sqliteParams(), "&")
 	if !strings.Contains(dataSourceName, "?") {
 		dataSourceName += "?" + pragmas
 	} else {
 		dataSourceName += "&" + pragmas
 	}
-	// Suppress stale SQLite error messages (for example "out of memory" for
-	// SQLITE_CANTOPEN), while preserving the actual code and useful SQL details.
-	dataSourceName += "&_error_rc=1"
 
-	db, err := sql.Open("sqlite", dataSourceName)
+	db, err := sql.Open(sqliteDriver, dataSourceName)
 	if err != nil {
 		return nil, err
 	}

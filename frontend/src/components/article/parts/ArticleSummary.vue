@@ -192,7 +192,7 @@ async function handleSummaryLinkClick(event: MouseEvent) {
         <!-- Copy Button (show when summary exists and expanded) -->
         <button
           v-if="summaryResult?.summary && showSummary"
-          class="p-1.5 rounded hover:bg-bg-tertiary text-text-secondary hover:text-text-primary transition-colors"
+          class="flex h-10 w-10 items-center justify-center rounded text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text-primary sm:h-auto sm:w-auto sm:p-1.5"
           :title="t('common.copy')"
           @click.stop="copySummary"
         >
@@ -201,7 +201,7 @@ async function handleSummaryLinkClick(event: MouseEvent) {
         <!-- Regenerate Button -->
         <button
           v-if="summaryResult || shouldShowManualTrigger"
-          class="p-1.5 rounded hover:bg-bg-tertiary text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          class="flex h-10 w-10 items-center justify-center rounded text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50 sm:h-auto sm:w-auto sm:p-1.5"
           :title="t('setting.content.regenerateSummary')"
           :disabled="isLoadingSummary"
           @click.stop="handleGenerateSummary"

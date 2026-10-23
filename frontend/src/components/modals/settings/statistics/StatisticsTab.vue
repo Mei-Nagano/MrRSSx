@@ -349,12 +349,12 @@ onMounted(async () => {
 
     <!-- Statistics Display -->
     <div v-else class="flex flex-col gap-6">
-      <div class="grid grid-cols-3 gap-3">
-        <div v-for="stat in totalStats" :key="stat.key" class="stat-card">
+      <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div v-for="stat in totalStats" :key="stat.key" class="stat-card min-w-0">
           <div class="stat-icon-wrapper">
             <component :is="stat.icon" :size="28" class="text-text-tertiary" />
           </div>
-          <div class="flex flex-col gap-1 flex-1">
+          <div class="flex min-w-0 flex-1 flex-col gap-1">
             <p class="text-xs font-semibold uppercase tracking-wider m-0 text-text-secondary">
               {{ stat.label }}
             </p>
@@ -388,8 +388,23 @@ onMounted(async () => {
   @apply flex items-center justify-center w-7 h-7 border border-border bg-bg-primary text-text-secondary rounded-md cursor-pointer transition-all hover:bg-accent hover:text-white hover:border-accent disabled:opacity-40 disabled:cursor-not-allowed;
 }
 
+/* The period arrows are 28px squares and the range chips 34px tall — both are
+   mouse sizes, and stepping back a week is the only way to read older numbers
+   on a phone. */
+@media (max-width: 767px) {
+  .nav-btn {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  .period-btn,
+  .date-input {
+    min-height: 2.5rem;
+  }
+}
+
 .stat-card {
-  @apply relative flex items-center gap-3 px-4 py-3 bg-bg-secondary border-2 border-border rounded-lg transition-all hover:shadow-sm;
+  @apply relative flex items-center gap-3 px-3 py-3 sm:px-4 bg-bg-secondary border-2 border-border rounded-lg transition-all hover:shadow-sm;
 }
 
 .stat-card:hover {
@@ -397,7 +412,7 @@ onMounted(async () => {
 }
 
 .stat-icon-wrapper {
-  @apply flex items-center justify-center w-12 h-12 rounded-lg flex-shrink-0;
+  @apply flex items-center justify-center w-9 h-9 sm:w-12 sm:h-12 rounded-lg flex-shrink-0;
   background-color: color-mix(in srgb, var(--bg-tertiary) 50%, transparent);
 }
 </style>

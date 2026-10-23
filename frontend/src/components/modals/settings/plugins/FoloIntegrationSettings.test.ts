@@ -5,8 +5,10 @@ import { InputControl } from '@/components/settings';
 import type { SettingsData } from '@/types/settings';
 import FoloIntegrationSettings from './FoloIntegrationSettings.vue';
 
-const openInBrowser = vi.fn(async () => {});
-vi.mock('@/utils/browser', () => ({ openInBrowser: (...args: unknown[]) => openInBrowser(...args) }));
+const openInBrowser = vi.fn(async (_url: string) => {});
+vi.mock('@/utils/browser', () => ({
+  openInBrowser: (...args: [string]) => openInBrowser(...args),
+}));
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
 
 const store = { fetchFeeds: vi.fn(), pollProgress: vi.fn() };
@@ -81,7 +83,12 @@ describe('Folo settings', () => {
   it('imports subscriptions and refreshes the feed list', async () => {
     const calls = stubFetch({
       '/api/folo/account': () =>
-        Response.json({ connected: true, name: 'Ada', email: 'ada@example.com', last_import_time: '' }),
+        Response.json({
+          connected: true,
+          name: 'Ada',
+          email: 'ada@example.com',
+          last_import_time: '',
+        }),
       '/api/folo/import': () => Response.json({ success: true, imported: 2, total: 3 }),
     });
     const wrapper = mountSettings();
@@ -93,11 +100,10 @@ describe('Folo settings', () => {
     await importButton?.trigger('click');
     await vi.waitFor(() => expect(window.showToast).toHaveBeenCalled());
 
-    expect(calls.some((call) => call.url === '/api/folo/import' && call.init?.method === 'POST')).toBe(true);
-    expect(window.showToast).toHaveBeenCalledWith(
-      'setting.folo.importDone',
-      'success'
-    );
+    expect(
+      calls.some((call) => call.url === '/api/folo/import' && call.init?.method === 'POST')
+    ).toBe(true);
+    expect(window.showToast).toHaveBeenCalledWith('setting.folo.importDone', 'success');
     expect(store.fetchFeeds).toHaveBeenCalled();
     expect(store.pollProgress).toHaveBeenCalled();
     wrapper.unmount();
@@ -114,7 +120,9 @@ describe('Folo settings', () => {
     const wrapper = mountSettings();
     await vi.waitFor(() => expect(textOf(wrapper)).toContain('setting.folo.notSignedIn'));
 
-    const signIn = wrapper.findAll('button').find((button) => button.text() === 'setting.folo.signIn');
+    const signIn = wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'setting.folo.signIn');
     await signIn?.trigger('click');
     await vi.waitFor(() => expect(openInBrowser).toHaveBeenCalledWith(loginURL));
 
@@ -128,7 +136,8 @@ describe('Folo settings', () => {
   it('accepts a pasted token for headless installs', async () => {
     const calls = stubFetch({
       '/api/folo/account': () => new Response('{}', { status: 401 }),
-      '/api/folo/login/complete': () => Response.json({ success: true, name: 'Ada', email: 'ada@example.com' }),
+      '/api/folo/login/complete': () =>
+        Response.json({ success: true, name: 'Ada', email: 'ada@example.com' }),
     });
     const wrapper = mountSettings();
     await vi.waitFor(() => expect(textOf(wrapper)).toContain('setting.folo.notSignedIn'));
@@ -137,7 +146,9 @@ describe('Folo settings', () => {
     input.vm.$emit('update:modelValue', 'one-time');
     await wrapper.vm.$nextTick();
 
-    const useToken = wrapper.findAll('button').find((button) => button.text() === 'setting.folo.manualUse');
+    const useToken = wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'setting.folo.manualUse');
     await useToken?.trigger('click');
     await vi.waitFor(() => expect(window.showToast).toHaveBeenCalled());
 
@@ -152,7 +163,8 @@ describe('Folo settings', () => {
 
   it('syncs read state and refreshes the article list', async () => {
     const calls = stubFetch({
-      '/api/folo/account': () => Response.json({ connected: true, name: 'Ada', email: 'ada@example.com' }),
+      '/api/folo/account': () =>
+        Response.json({ connected: true, name: 'Ada', email: 'ada@example.com' }),
       '/api/folo/sync': () =>
         Response.json({ success: true, pushed: 2, pulled: 3, matched: 3, skipped: 0, mapped: 3 }),
     });
@@ -166,7 +178,9 @@ describe('Folo settings', () => {
     await sync?.trigger('click');
     await vi.waitFor(() => expect(window.showToast).toHaveBeenCalled());
 
-    expect(calls.some((call) => call.url === '/api/folo/sync' && call.init?.method === 'POST')).toBe(true);
+    expect(
+      calls.some((call) => call.url === '/api/folo/sync' && call.init?.method === 'POST')
+    ).toBe(true);
     expect(window.showToast).toHaveBeenCalledWith('setting.folo.syncDone', 'success');
     expect(refreshed).toHaveBeenCalled();
 
@@ -174,9 +188,56 @@ describe('Folo settings', () => {
     wrapper.unmount();
   });
 
+  it('keeps the signed-in state when the account cannot be reached', async () => {
+    let reachable = true;
+    const calls = stubFetch({
+      '/api/folo/account': () =>
+        reachable
+          ? Response.json({ connected: true, name: 'Ada', email: 'ada@example.com' })
+          : new Response('{}', { status: 502 }),
+    });
+    const wrapper = mountSettings();
+    await vi.waitFor(() => expect(textOf(wrapper)).toContain('setting.folo.signedInAs'));
+
+    // Coming back to the app while offline must not look like a sign-out.
+    reachable = false;
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.waitFor(() =>
+      expect(calls.filter((call) => call.url === '/api/folo/account')).toHaveLength(2)
+    );
+
+    expect(textOf(wrapper)).toContain('setting.folo.signedInAs');
+    expect(textOf(wrapper)).not.toContain('setting.folo.notSignedIn');
+    wrapper.unmount();
+  });
+
+  it('drops back to signed out when the stored session is rejected', async () => {
+    stubFetch({
+      '/api/folo/account': () =>
+        Response.json({ connected: true, name: 'Ada', email: 'ada@example.com' }),
+      '/api/folo/sync': () => Response.json({ code: 'not_authenticated' }, { status: 401 }),
+    });
+    const wrapper = mountSettings();
+    await vi.waitFor(() => expect(textOf(wrapper)).toContain('setting.folo.signedInAs'));
+
+    const sync = wrapper.findAll('button').find((button) => button.text() === 'setting.folo.sync');
+    await sync?.trigger('click');
+    await vi.waitFor(() =>
+      expect(window.showToast).toHaveBeenCalledWith('setting.folo.sessionExpired', 'error')
+    );
+
+    // The panel must not keep claiming a signed-in account Folo no longer accepts.
+    expect(textOf(wrapper)).toContain('setting.folo.notSignedIn');
+    expect(textOf(wrapper)).not.toContain('setting.folo.signedInAs');
+    wrapper.unmount();
+  });
+
   it('edits the API URL without disturbing other settings', async () => {
     stubFetch({ '/api/folo/account': () => new Response('{}', { status: 401 }) });
-    const wrapper = mountSettings({ folo_api_url: 'https://api.folo.is', folo_folder_mode: 'category' });
+    const wrapper = mountSettings({
+      folo_api_url: 'https://api.folo.is',
+      folo_folder_mode: 'category',
+    });
     await vi.waitFor(() => expect(textOf(wrapper)).toContain('setting.folo.notSignedIn'));
 
     const apiInput = wrapper.findAllComponents(InputControl)[1];

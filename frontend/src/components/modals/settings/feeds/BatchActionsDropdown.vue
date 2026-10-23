@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, type Ref } from 'vue';
-import { PhDotsThree, PhFolder, PhTag, PhImage } from '@phosphor-icons/vue';
+import { PhDotsThree, PhFolder, PhTag, PhImage, PhProhibit } from '@phosphor-icons/vue';
 
 interface Props {
   disabled?: boolean;

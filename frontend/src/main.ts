@@ -1,10 +1,31 @@
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
-import PhosphorIcons from '@phosphor-icons/vue';
 import i18n, { locale } from './i18n';
+import { resolveLocale } from './i18n/locale';
 import './style.css';
 import App from './App.vue';
 import { setSettingsFromRawData } from './composables/core/useSettings';
+import { registerServiceWorker } from './utils/pwa';
+import { installAndroidApiBridge } from './utils/apiBridge';
+import { installAndroidBackBridge } from './composables/ui/useAndroidBack';
+import { isMobileShell } from './utils/platform';
+
+// Must run before the first request is issued: inside the Android host the
+// WebView asset loader cannot carry request bodies, so /api/ traffic is routed
+// through the native bridge instead. No-op everywhere else.
+installAndroidApiBridge();
+
+// The Android shell forwards the hardware back button here instead of closing
+// the activity; the registered handlers decide whether the press was consumed.
+installAndroidBackBridge();
+
+// Mark the document so the stylesheet can reserve the system bars. Neither
+// `display-mode: standalone` nor a media query identifies this host: the native
+// WebView reports a browser display mode, and a landscape phone is wider than
+// the phone breakpoint while still having a status bar and cutout to clear.
+if (isMobileShell()) {
+  document.documentElement.classList.add('mobile-shell');
+}
 
 const app = createApp(App);
 const pinia = createPinia();
@@ -22,7 +43,6 @@ app.config.errorHandler = (err, instance, info) => {
 
 app.use(pinia);
 app.use(i18n);
-app.use(PhosphorIcons);
 
 // Initialize language setting before mounting
 async function initializeApp() {
@@ -46,7 +66,7 @@ async function initializeApp() {
     }
 
     if (data.language) {
-      locale.value = data.language;
+      locale.value = resolveLocale(data.language);
     }
 
     setSettingsFromRawData(data);
@@ -63,3 +83,4 @@ async function initializeApp() {
 
 // Initialize and mount
 initializeApp();
+registerServiceWorker();

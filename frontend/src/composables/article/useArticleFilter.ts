@@ -64,7 +64,7 @@ export function useArticleFilter() {
       if (res.ok) {
         const data = await res.json();
         if (!isCurrent()) return;
-        const articles = data.articles || [];
+        const articles: Article[] = data.articles || [];
 
         if (append) {
           store.setFilteredArticlesFromServer([...store.filteredArticlesFromServer, ...articles]);

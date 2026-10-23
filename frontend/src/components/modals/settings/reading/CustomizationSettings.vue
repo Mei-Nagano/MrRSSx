@@ -50,12 +50,10 @@ const handleFileUpload = async () => {
     const result = await response.json();
 
     if (result.status === 'cancelled') {
-      console.log('CSS upload cancelled by user');
       return;
     }
 
     if (result.status === 'success') {
-      console.log('CSS upload successful:', result);
       window.showToast(t('setting.customization.cssUploaded'), 'success');
 
       // Reload settings from backend to update composable
@@ -64,7 +62,6 @@ const handleFileUpload = async () => {
 
         // Emit the updated settings to parent
         emit('update:settings', updatedSettings);
-        console.log('Settings updated with custom_css_file:', updatedSettings.custom_css_file);
       } catch (settingsError) {
         console.error('Failed to reload settings:', settingsError);
         // Don't show error toast for this, since upload succeeded
@@ -88,8 +85,6 @@ const handleDeleteCSS = async () => {
   deleteLoading.value = true;
 
   try {
-    console.log('Deleting custom CSS...');
-
     const response = await fetch('/api/custom-css/delete', {
       method: 'POST',
     });
@@ -100,7 +95,6 @@ const handleDeleteCSS = async () => {
     }
 
     const result = await response.json();
-    console.log('Delete response:', result);
 
     window.showToast(t('setting.customization.cssDeleted'), 'success');
 
@@ -110,7 +104,6 @@ const handleDeleteCSS = async () => {
 
       // Emit the updated settings to parent
       emit('update:settings', updatedSettings);
-      console.log('Settings updated with custom_css_file:', updatedSettings.custom_css_file);
     } catch (settingsError) {
       console.error('Failed to reload settings:', settingsError);
     }

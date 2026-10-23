@@ -157,4 +157,13 @@ function handleDangerClick() {
 button {
   box-sizing: border-box;
 }
+
+/* On phones the footer buttons stack and go full width, which makes them the
+   biggest thing on the dialog while still being 36px tall — a mouse height.
+   44px is the size a thumb expects from a full-width button. */
+@media (max-width: 767px) {
+  button {
+    min-height: 2.75rem;
+  }
+}
 </style>

@@ -3,8 +3,6 @@ package database
 import (
 	"MrRSS/internal/config"
 	"log"
-
-	_ "modernc.org/sqlite"
 )
 
 // Init initializes the database schema and settings.

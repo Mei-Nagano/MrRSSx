@@ -1,0 +1,81 @@
+name: Android APK
+
+# Builds the installable Android packages without a local toolchain. The
+# universal package covers phones (arm64-v8a) and emulators (x86_64); the
+# phone-only package is smaller and is what a physical device should get.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        run: |
+          set -euo pipefail
+          NDK_PACKAGE="$(sdkmanager --list \
+            | grep -oE 'ndk;29\.[0-9]+\.[0-9]+' \
+            | sort -V | tail -1)"
+          if [ -z "$NDK_PACKAGE" ]; then
+            echo "No NDK 29 package offered by sdkmanager" >&2
+            exit 1
+          fi
+          echo "Installing $NDK_PACKAGE"
+          yes | sdkmanager "$NDK_PACKAGE" > /dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_PACKAGE#ndk;}" >> "$GITHUB_ENV"
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: ./frontend
+        run: npm run build
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x build/android/gradlew
+
+      - name: Build universal APK
+        run: bash build/android/package.sh --abi all
+
+      - name: Build arm64 APK
+        run: bash build/android/package.sh --abi arm64
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: mrrss-android
+          path: |
+            build/bin/MrRSS.apk
+            build/bin/MrRSS-arm64-v8a.apk
+          if-no-files-found: error

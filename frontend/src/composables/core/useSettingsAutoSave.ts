@@ -3,6 +3,7 @@
  */
 import { ref, watch, onMounted, onUnmounted, type Ref, computed, isRef } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { resolveLocale } from '@/i18n/locale';
 import { getAutoRefreshInterval, useAppStore } from '@/stores/app';
 import type { SettingsData } from '@/types/settings';
 import { settingsDefaults } from '@/config/defaults';
@@ -98,7 +99,7 @@ export function useSettingsAutoSave(settings: Ref<SettingsData> | (() => Setting
 
       // Always apply basic settings immediately (theme, language, etc.)
       // even if validation fails - these don't require API keys
-      locale.value = settingsRef.value.language;
+      locale.value = resolveLocale(settingsRef.value.language);
       store.setTheme(settingsRef.value.theme as 'light' | 'dark' | 'auto');
       store.startAutoRefresh(
         getAutoRefreshInterval(settingsRef.value.refresh_mode, settingsRef.value.update_interval)

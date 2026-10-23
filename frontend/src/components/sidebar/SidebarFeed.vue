@@ -198,6 +198,15 @@ function handleDragEnd() {
   @apply px-2 sm:px-3 py-1.5 sm:py-2 cursor-pointer rounded-md text-xs sm:text-sm text-text-primary flex items-center gap-1 hover:bg-bg-tertiary transition-colors;
 }
 
+/* A feed row is 28px on a phone — the most tapped row in the drawer and the
+   smallest one. Compact mode is a density choice the user made on purpose, so
+   it keeps its own height. */
+@media (max-width: 767px) {
+  .feed-item:not(.compact) {
+    min-height: 2.5rem;
+  }
+}
+
 /* Compact mode: reduce padding and gap */
 .feed-item.compact {
   @apply px-1 sm:px-1.5 py-0.5 sm:py-1 gap-0 sm:gap-0.5;

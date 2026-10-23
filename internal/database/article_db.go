@@ -11,8 +11,6 @@ import (
 
 	"MrRSS/internal/models"
 	"MrRSS/internal/utils/urlutil"
-
-	"modernc.org/sqlite"
 )
 
 const saveArticlesMaxAttempts = 3
@@ -199,16 +197,14 @@ func (db *DB) saveArticlesOnce(ctx context.Context, articles []*models.Article) 
 }
 
 func isRetryableSQLiteWriteError(err error) bool {
-	var sqliteErr *sqlite.Error
-	if !errors.As(err, &sqliteErr) {
-		return false
-	}
-
 	// SQLite extended result codes retain the primary result in the low byte.
 	// This covers SQLITE_BUSY (5), SQLITE_LOCKED (6), and variants such as
 	// SQLITE_BUSY_SNAPSHOT (517).
-	primaryCode := sqliteErr.Code() & 0xff
-	return primaryCode == 5 || primaryCode == 6
+	code, ok := sqlitePrimaryCode(err)
+	if !ok {
+		return false
+	}
+	return code == sqliteBusy || code == sqliteLocked
 }
 
 // GetArticles retrieves articles with filtering, pagination, and sorting.

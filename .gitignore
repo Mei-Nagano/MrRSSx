@@ -88,3 +88,31 @@ tmpclaude-*-cwd
 i18n_usage_report.md
 __pycache__/
 .VSCodeCounter
+
+# Android build outputs
+build/android/app/build/
+build/android/build/
+build/android/.gradle/
+build/android/gen/
+build/android/overlay.json
+build/android/local.properties
+build/android/app/src/main/jniLibs/
+
+# Frontend build stash left by an interrupted Vite build
+frontend/dist.bak/
+
+# Local debugging captures and agent scratch state
+# (emulator screenshots, CDP probe scripts, session notes)
+.tmp-emu/
+.workbuddy-ai/
+.qoder/
+.codex/
+
+# OS and editor metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+*.iml
+*.bak
+*.orig
+*.rej

@@ -345,7 +345,7 @@ export function useKeyboardShortcuts(callbacks: KeyboardShortcutCallbacks) {
         window.dispatchEvent(new CustomEvent('toggle-content-view'));
         break;
       case 'refreshFeeds':
-        store.refreshFeeds();
+        store.refreshFeeds({ announceErrors: true });
         break;
       case 'markAllRead':
         callbacks.onMarkAllRead();

@@ -187,6 +187,28 @@ func TestHandleAccountTreatsStaleTokenAsSignedOut(t *testing.T) {
 	}
 }
 
+func TestHandleAccountTreatsUnreadableTokenAsSignedOut(t *testing.T) {
+	h, _ := newTestHandler(t)
+	// A token encrypted under a different machine ID (hostname/OS changed, database
+	// copied) cannot be decrypted. Every endpoint, sign-in included, must stay
+	// usable instead of failing with 502.
+	if err := h.DB.SetSetting(sessionTokenKey, "MrRSS-v1:not-valid-base64!!"); err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	HandleAccount(h, rr, httptest.NewRequest(http.MethodGet, "/api/folo/account", nil))
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rr.Code)
+	}
+	if code := decodedCode(t, rr.Body.String()); code != codeNotAuthenticated {
+		t.Errorf("code = %q", code)
+	}
+	if stored, err := h.DB.GetSetting(sessionTokenKey); err != nil || stored == "" {
+		t.Errorf("stored token = %q, %v; the unreadable row should stay for a re-login to overwrite", stored, err)
+	}
+}
+
 func TestHandleLoginCompleteStoresExchangedToken(t *testing.T) {
 	server := fakeFolo(t, sampleOPML)
 	h, _ := newTestHandler(t)

@@ -23,6 +23,9 @@ import {
   PhFloppyDisk,
   PhSortAscending,
   PhCaretDown,
+  PhPlus,
+  PhGear,
+  PhPushPinSlash,
 } from '@phosphor-icons/vue';
 import type { Feed } from '@/types/models';
 import type { FilterCondition, SavedFilter } from '@/types/filter';
@@ -37,6 +40,8 @@ const emit = defineEmits<{
   collapse: [];
   pin: [];
   unpin: [];
+  'add-feed': [];
+  settings: [];
 }>();
 
 const store = useAppStore();
@@ -471,6 +476,23 @@ const drawerTitle = computed(() => {
   return t('sidebar.feedList.feeds');
 });
 
+// The tree is filtered by the current view, so a view with nothing in it (the
+// gallery with no image-mode feeds, unread with nothing unread) drops every feed
+// and used to leave the drawer blank — it read as "my feeds disappeared" rather
+// than "this view is empty". Say which one it is.
+const hasVisibleFeeds = computed(
+  () =>
+    categoryEntries(filteredTree.value.tree).length > 0 ||
+    filteredTree.value.uncategorized.length > 0
+);
+
+const emptyHint = computed(() => {
+  if (store.feeds.length === 0) return t('sidebar.feedList.emptyNoFeeds');
+  if (searchQuery.value.trim()) return t('sidebar.feedList.emptySearch');
+  if (store.currentFilter === 'imageGallery') return t('sidebar.feedList.emptyImageMode');
+  return t('sidebar.feedList.emptyView');
+});
+
 function handleClose() {
   // Always allow closing, regardless of pinned state
   // Pinned state only affects positioning, not ability to close
@@ -639,9 +661,11 @@ function handleFilterDragEnd() {
       >
         <h3 class="m-0 text-base sm:text-lg font-semibold">{{ drawerTitle }}</h3>
         <div class="flex items-center gap-1 sm:gap-2">
-          <!-- Pin/Unpin Button -->
+          <!-- Pin/Unpin Button. Only meaningful where the drawer can be a
+               column; on phones it is always a sheet, so the control would
+               toggle a setting the layout ignores. -->
           <button
-            class="text-text-secondary hover:text-text-primary hover:bg-bg-tertiary p-1 sm:p-1.5 rounded transition-colors"
+            class="drawer-pin-btn drawer-header-btn text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
             :class="isPinned ? 'text-accent' : ''"
             :title="isPinned ? t('sidebar.feedList.unpin') : t('sidebar.feedList.pin')"
             @click="handleTogglePin"
@@ -652,7 +676,7 @@ function handleFilterDragEnd() {
           <div ref="sortMenuRef" v-if="drawerType === 'feeds'" class="relative">
             <button
               type="button"
-              class="text-text-secondary hover:text-text-primary hover:bg-bg-tertiary p-1 sm:p-1.5 rounded transition-colors"
+              class="drawer-header-btn text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
               :title="`${t('sidebar.order.sort')}: ${currentSidebarSortLabel}`"
               :aria-label="t('sidebar.order.sort')"
               :aria-expanded="showSortMenu"
@@ -693,7 +717,7 @@ function handleFilterDragEnd() {
           </div>
           <!-- Close Button -->
           <button
-            class="text-text-secondary hover:text-text-primary hover:bg-bg-tertiary p-1 sm:p-1.5 rounded transition-colors"
+            class="drawer-header-btn text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
             :title="t('common.close')"
             @click="handleClose"
           >
@@ -714,7 +738,7 @@ function handleFilterDragEnd() {
                   v-model="searchQuery"
                   type="text"
                   :placeholder="t('common.search.searchFeeds')"
-                  class="w-full bg-bg-tertiary px-3 py-2 pl-8 text-sm focus:outline-none transition-colors"
+                  class="drawer-search-input w-full bg-bg-tertiary px-3 py-2 pl-8 text-sm focus:outline-none transition-colors"
                 />
                 <PhMagnifyingGlass
                   :size="14"
@@ -722,7 +746,7 @@ function handleFilterDragEnd() {
                 />
                 <button
                   v-if="searchQuery"
-                  class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-text-secondary hover:text-text-primary"
+                  class="drawer-search-clear absolute right-2 top-1/2 -translate-y-1/2 p-1 text-text-secondary hover:text-text-primary"
                   @click="searchQuery = ''"
                 >
                   <PhX :size="12" />
@@ -730,7 +754,7 @@ function handleFilterDragEnd() {
               </div>
               <!-- Edit Toggle Button -->
               <button
-                class="text-text-secondary hover:text-accent p-1 sm:p-1.5 transition-colors flex-shrink-0"
+                class="drawer-header-btn text-text-secondary hover:bg-bg-tertiary hover:text-accent"
                 :class="isEditMode ? 'text-accent' : ''"
                 :title="isEditMode ? t('common.done') : t('common.edit')"
                 @click="toggleEditMode"
@@ -821,6 +845,14 @@ function handleFilterDragEnd() {
               @dragleave="(categoryName: string, e: Event) => handleDragLeave(categoryName, e)"
               @drop="handleDrop"
             />
+
+            <p
+              v-if="!hasVisibleFeeds && !isDragging"
+              class="grid h-full place-items-center px-5 text-center text-xs leading-relaxed text-text-secondary"
+              data-testid="feed-drawer-empty"
+            >
+              {{ emptyHint }}
+            </p>
           </div>
 
           <!-- Saved Filters Section - positioned at bottom, only show when viewing All Articles -->
@@ -887,6 +919,35 @@ function handleFilterDragEnd() {
           </div>
         </template>
       </div>
+
+      <!-- Actions footer. Add-feed and settings live here rather than in the
+           bottom navigation bar: that bar answers "which view am I on", while
+           these are actions. Keeping them in the drawer also means they do not
+           re-add a duplicate of the list header's hamburger. -->
+      <div
+        class="drawer-actions-footer flex-shrink-0 border-t border-border bg-bg-secondary px-2 py-1.5"
+      >
+        <div class="flex items-center gap-1">
+          <button
+            type="button"
+            class="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-lg border border-border bg-bg-primary px-3 text-xs text-text-primary transition-colors hover:bg-bg-tertiary"
+            :title="t('sidebar.activity.addFeed')"
+            @click="emit('add-feed')"
+          >
+            <PhPlus :size="16" />
+            <span class="truncate">{{ t('sidebar.activity.addFeed') }}</span>
+          </button>
+          <button
+            type="button"
+            class="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-lg border border-border bg-bg-primary px-3 text-xs text-text-primary transition-colors hover:bg-bg-tertiary"
+            :title="t('setting.tab.settings')"
+            @click="emit('settings')"
+          >
+            <PhGear :size="16" />
+            <span class="truncate">{{ t('setting.tab.settings') }}</span>
+          </button>
+        </div>
+      </div>
     </div>
   </Transition>
 
@@ -920,6 +981,65 @@ function handleFilterDragEnd() {
 </template>
 
 <style scoped>
+/* The drawer header's icons are 40px for as long as the drawer is a sheet
+   (below 768px, where the rail collapses into the bottom bar). They were 26px,
+   which is a mouse-sized target on the first row a thumb reaches for; the
+   compact desktop padding comes back with the rail. Colour is left to the
+   utility classes so the pinned and edit-active accent states keep winning. */
+.drawer-header-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  transition:
+    color 0.15s,
+    background-color 0.15s;
+}
+
+@media (min-width: 768px) {
+  .drawer-header-btn {
+    width: auto;
+    height: auto;
+    padding: 6px;
+  }
+}
+
+/* On a phone the drawer is a sheet, so pinning has nothing to pin: the button
+   would write a setting the layout ignores and, worse, make outside taps stop
+   dismissing the sheet. */
+@media (max-width: 767px) {
+  .drawer-pin-btn {
+    display: none;
+  }
+}
+
+/* The 10px bar is a desktop size, and this one only appears on hover — a phone
+   gets 4px and gives the 6px back to the feed names. */
+@media (max-width: 767px) {
+  .sidebar-hover-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  /* The drawer's search field is 36px tall with a 20px clear button at its right
+     edge — the two things a thumb aims at while filtering a long feed list. */
+  .drawer-search-input {
+    min-height: 2.5rem;
+    padding-right: 2.75rem;
+  }
+
+  .drawer-search-clear {
+    right: 0;
+    width: 2.5rem;
+    height: 2.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
 .sidebar-hover-scrollbar {
   scrollbar-gutter: stable;
 }
@@ -957,6 +1077,26 @@ function handleFilterDragEnd() {
   .feed-drawer-width {
     width: 240px !important;
     min-width: 240px !important;
+  }
+}
+
+/* On a phone the drawer is a sheet over the list, not a column beside it, so it
+   can use most of the screen instead of the 240px that the desktop layout needs.
+   Feed titles are the reason the sheet exists; 240px clipped the longer ones. */
+@media (max-width: 767px) {
+  .feed-drawer-width {
+    width: min(320px, 84vw) !important;
+    min-width: min(320px, 84vw) !important;
+  }
+}
+
+/* The footer's two actions live in the left rail wherever the rail is visible.
+   They move into the drawer only once the rail collapses into the phone bottom
+   bar (which carries just the five views), so the actions always have exactly
+   one home per layout. */
+@media (min-width: 768px) {
+  .drawer-actions-footer {
+    display: none;
   }
 }
 </style>

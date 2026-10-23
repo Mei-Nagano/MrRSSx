@@ -358,7 +358,7 @@ const submitButtonText = computed(() => {
             {{ mode === 'add' ? t('common.text.orTry') : t('common.action.switchTo') }}
             <button
               type="button"
-              class="text-xs text-accent hover:underline mx-1"
+              class="form-link text-xs text-accent hover:underline mx-1"
               @click="feedType = 'script'"
             >
               {{ t('setting.customization.script') }}
@@ -366,7 +366,7 @@ const submitButtonText = computed(() => {
             {{ t('common.text.or') }}
             <button
               type="button"
-              class="text-xs text-accent hover:underline mx-1"
+              class="form-link text-xs text-accent hover:underline mx-1"
               @click="feedType = 'xpath'"
             >
               {{ t('modal.feed.xpath') }}
@@ -374,7 +374,7 @@ const submitButtonText = computed(() => {
             {{ t('common.text.or') }}
             <button
               type="button"
-              class="text-xs text-accent hover:underline mx-1"
+              class="form-link text-xs text-accent hover:underline mx-1"
               @click="feedType = 'email'"
             >
               {{ t('modal.feed.email') }}
@@ -383,7 +383,7 @@ const submitButtonText = computed(() => {
               {{ t('common.text.or') }}
               <button
                 type="button"
-                class="text-xs text-accent hover:underline mx-1 inline-flex items-center gap-1"
+                class="form-link text-xs text-accent hover:underline mx-1 inline-flex items-center gap-1"
                 @click="insertRSSHubPrefix"
               >
                 <img src="/assets/plugin_icons/rsshub.svg" class="w-3 h-3" alt="RSSHub" />
@@ -400,7 +400,7 @@ const submitButtonText = computed(() => {
         <div class="mb-3 text-center">
           <button
             type="button"
-            class="text-xs text-accent hover:underline transition-colors"
+            class="form-link text-xs text-accent hover:underline transition-colors"
             @click="feedType = 'url'"
           >
             ← {{ t('article.action.backToUrl') }}
@@ -423,7 +423,7 @@ const submitButtonText = computed(() => {
             {{ mode === 'add' ? t('common.text.orTry') : t('common.action.switchTo') }}
             <button
               type="button"
-              class="text-xs text-accent hover:underline mx-1"
+              class="form-link text-xs text-accent hover:underline mx-1"
               @click="feedType = 'url'"
             >
               {{ t('modal.feed.rssUrl') }}
@@ -431,7 +431,7 @@ const submitButtonText = computed(() => {
             {{ t('common.text.or') }}
             <button
               type="button"
-              class="text-xs text-accent hover:underline mx-1"
+              class="form-link text-xs text-accent hover:underline mx-1"
               @click="feedType = 'xpath'"
             >
               {{ t('modal.feed.xpath') }}
@@ -439,7 +439,7 @@ const submitButtonText = computed(() => {
             {{ t('common.text.or') }}
             <button
               type="button"
-              class="text-xs text-accent hover:underline mx-1"
+              class="form-link text-xs text-accent hover:underline mx-1"
               @click="feedType = 'email'"
             >
               {{ t('modal.feed.email') }}
@@ -448,7 +448,7 @@ const submitButtonText = computed(() => {
               {{ t('common.text.or') }}
               <button
                 type="button"
-                class="text-xs text-accent hover:underline mx-1 inline-flex items-center gap-1"
+                class="form-link text-xs text-accent hover:underline mx-1 inline-flex items-center gap-1"
                 @click="insertRSSHubPrefix"
               >
                 <img src="/assets/plugin_icons/rsshub.svg" class="w-3 h-3" alt="RSSHub" />
@@ -465,7 +465,7 @@ const submitButtonText = computed(() => {
         <div class="mb-3 text-center">
           <button
             type="button"
-            class="text-xs text-accent hover:underline transition-colors"
+            class="form-link text-xs text-accent hover:underline transition-colors"
             @click="feedType = 'url'"
           >
             ← {{ t('article.action.backToUrl') }}
@@ -510,7 +510,7 @@ const submitButtonText = computed(() => {
             {{ mode === 'add' ? t('common.text.orTry') : t('common.action.switchTo') }}
             <button
               type="button"
-              class="text-xs text-accent hover:underline mx-1"
+              class="form-link text-xs text-accent hover:underline mx-1"
               @click="feedType = 'url'"
             >
               {{ t('modal.feed.rssUrl') }}
@@ -518,7 +518,7 @@ const submitButtonText = computed(() => {
             {{ t('common.text.or') }}
             <button
               type="button"
-              class="text-xs text-accent hover:underline mx-1"
+              class="form-link text-xs text-accent hover:underline mx-1"
               @click="feedType = 'script'"
             >
               {{ t('setting.customization.script') }}
@@ -526,7 +526,7 @@ const submitButtonText = computed(() => {
             {{ t('common.text.or') }}
             <button
               type="button"
-              class="text-xs text-accent hover:underline mx-1"
+              class="form-link text-xs text-accent hover:underline mx-1"
               @click="feedType = 'email'"
             >
               {{ t('modal.feed.email') }}
@@ -535,7 +535,7 @@ const submitButtonText = computed(() => {
               {{ t('common.text.or') }}
               <button
                 type="button"
-                class="text-xs text-accent hover:underline mx-1 inline-flex items-center gap-1"
+                class="form-link text-xs text-accent hover:underline mx-1 inline-flex items-center gap-1"
                 @click="insertRSSHubPrefix"
               >
                 <img src="/assets/plugin_icons/rsshub.svg" class="w-3 h-3" alt="RSSHub" />
@@ -552,7 +552,7 @@ const submitButtonText = computed(() => {
         <div class="mb-3 text-center">
           <button
             type="button"
-            class="text-xs text-accent hover:underline transition-colors"
+            class="form-link text-xs text-accent hover:underline transition-colors"
             @click="feedType = 'url'"
           >
             ← {{ t('article.action.backToUrl') }}
@@ -582,7 +582,7 @@ const submitButtonText = computed(() => {
             {{ mode === 'add' ? t('common.text.orTry') : t('common.action.switchTo') }}
             <button
               type="button"
-              class="text-xs text-accent hover:underline mx-1"
+              class="form-link text-xs text-accent hover:underline mx-1"
               @click="feedType = 'url'"
             >
               {{ t('modal.feed.rssUrl') }}
@@ -590,7 +590,7 @@ const submitButtonText = computed(() => {
             {{ t('common.text.or') }}
             <button
               type="button"
-              class="text-xs text-accent hover:underline mx-1"
+              class="form-link text-xs text-accent hover:underline mx-1"
               @click="feedType = 'xpath'"
             >
               {{ t('modal.feed.xpath') }}
@@ -598,7 +598,7 @@ const submitButtonText = computed(() => {
             {{ t('common.text.or') }}
             <button
               type="button"
-              class="text-xs text-accent hover:underline mx-1"
+              class="form-link text-xs text-accent hover:underline mx-1"
               @click="feedType = 'script'"
             >
               {{ t('setting.customization.script') }}
@@ -607,7 +607,7 @@ const submitButtonText = computed(() => {
               {{ t('common.text.or') }}
               <button
                 type="button"
-                class="text-xs text-accent hover:underline mx-1 inline-flex items-center gap-1"
+                class="form-link text-xs text-accent hover:underline mx-1 inline-flex items-center gap-1"
                 @click="insertRSSHubPrefix"
               >
                 <img src="/assets/plugin_icons/rsshub.svg" class="w-3 h-3" alt="RSSHub" />
@@ -635,7 +635,7 @@ const submitButtonText = computed(() => {
       <div class="mb-3 sm:mb-4">
         <button
           type="button"
-          class="flex items-center gap-1 text-xs sm:text-sm text-accent hover:text-accent-hover transition-colors"
+          class="form-link flex items-center gap-1 text-xs sm:text-sm text-accent hover:text-accent-hover transition-colors"
           @click="showAdvancedSettings = !showAdvancedSettings"
         >
           <PhCaretRight
@@ -710,7 +710,7 @@ const submitButtonText = computed(() => {
           <button
             v-if="mode === 'add' && feedType === 'url' && !showPreview"
             type="button"
-            class="text-accent text-sm font-semibold disabled:opacity-50"
+            class="form-link text-accent text-sm font-semibold disabled:opacity-50"
             :disabled="!canPreview || isSubmitting"
             @click="startPreview"
           >
@@ -736,5 +736,14 @@ const submitButtonText = computed(() => {
 @reference "../../../style.css";
 .input-field {
   @apply w-full p-2 sm:p-2.5 border border-border rounded-md bg-bg-tertiary text-text-primary text-xs sm:text-sm focus:border-accent focus:outline-none transition-colors;
+}
+
+/* The inline actions ("try a custom script or XPath") are as tall as their
+   text — 16px. Vertical padding on an inline box grows the hit area without
+   moving the line, so the sentence still reads as one line. */
+@media (max-width: 767px) {
+  .form-link {
+    padding-block: 0.75rem;
+  }
 }
 </style>

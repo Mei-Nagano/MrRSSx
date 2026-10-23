@@ -12,6 +12,8 @@ import {
 } from '@phosphor-icons/vue';
 import type { ArticleSortOrder } from '@/stores/app';
 import type { ArticleGroupBy } from '@/utils/articleGrouping';
+import { useDismissOnBack } from '@/composables/ui/useAndroidBack';
+import { bottomBarHeight } from '@/composables/ui/usePhoneLayout';
 
 const props = defineProps<{
   sortOrder: ArticleSortOrder;
@@ -55,13 +57,16 @@ function outside(event: Event) {
   if (open.value && !contains(event.target)) close();
 }
 
+// Back press closes the panel instead of leaving the app.
+useDismissOnBack(open, () => close());
+
 function placePanel() {
   if (!trigger.value || !panel.value) return;
   const anchor = trigger.value.getBoundingClientRect();
   const height = panel.value.getBoundingClientRect().height;
   const margin = 8;
   const gap = 6;
-  const below = window.innerHeight - anchor.bottom - gap - margin;
+  const below = window.innerHeight - bottomBarHeight() - anchor.bottom - gap - margin;
   const above = anchor.top - gap - margin;
   const useAbove = height > below && above > below;
   position.value = {
@@ -110,7 +115,7 @@ onBeforeUnmount(() => {
     <button
       ref="trigger"
       type="button"
-      class="relative rounded p-1 transition-colors hover:bg-bg-tertiary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent sm:p-1.5"
+      class="relative flex h-10 w-10 items-center justify-center rounded-md p-1 transition-colors hover:bg-bg-tertiary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent sm:h-auto sm:w-auto sm:p-1.5"
       :class="open || customized ? 'text-accent' : 'text-text-secondary hover:text-text-primary'"
       :title="t('article.list.more')"
       :aria-label="t('article.list.more')"

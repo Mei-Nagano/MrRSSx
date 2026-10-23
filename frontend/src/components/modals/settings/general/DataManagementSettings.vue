@@ -20,8 +20,12 @@ import {
 } from '@/components/settings';
 import '@/components/settings/styles.css';
 import type { SettingsData } from '@/types/settings';
+import { isDesktopShell } from '@/utils/platform';
 
 const { t } = useI18n();
+
+// Moving the data directory needs a native folder picker, which phones do not have.
+const showDataDirectory = isDesktopShell();
 
 interface Props {
   settings: SettingsData;
@@ -159,7 +163,7 @@ watch(
 
 <template>
   <SettingGroup :icon="PhDatabase" :title="t('setting.database.dataManagement')">
-    <DataDirectorySettings />
+    <DataDirectorySettings v-if="showDataDirectory" />
     <!-- Article Cleanup -->
     <SettingWithToggle
       :icon="PhBroom"

@@ -8,6 +8,8 @@ interface Props {
   required?: boolean;
   customClass?: string;
   layout?: 'row' | 'column';
+  /** Stack the action under the text when the panel is narrow (below lg). */
+  stackNarrow?: boolean;
 }
 
 withDefaults(defineProps<Props>(), {
@@ -16,6 +18,7 @@ withDefaults(defineProps<Props>(), {
   required: false,
   customClass: '',
   layout: 'row',
+  stackNarrow: false,
 });
 </script>
 
@@ -25,7 +28,7 @@ withDefaults(defineProps<Props>(), {
     :class="[customClass, { 'sub-setting-item-column': layout === 'column' }]"
   >
     <div
-      class="flex items-center sm:items-start justify-between gap-2 sm:gap-4 w-full"
+      class="flex flex-wrap items-center sm:items-start justify-between gap-2 sm:gap-4 w-full"
       :class="{ 'flex-col': layout === 'column' }"
     >
       <div
@@ -51,7 +54,15 @@ withDefaults(defineProps<Props>(), {
           <slot name="extraInfo" />
         </div>
       </div>
-      <div :class="layout === 'column' ? 'w-full' : 'shrink-0'">
+      <div
+        :class="
+          layout === 'column'
+            ? 'w-full'
+            : stackNarrow
+              ? 'w-full lg:w-auto lg:shrink-0'
+              : 'shrink-0'
+        "
+      >
         <slot />
       </div>
     </div>

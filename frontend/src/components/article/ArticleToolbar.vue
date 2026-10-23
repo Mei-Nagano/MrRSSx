@@ -1,29 +1,14 @@
 <script setup lang="ts">
-import { withShortcut } from '@/composables/ui/shortcutBindings';
 import { useI18n } from 'vue-i18n';
 import { useSettings } from '@/composables/core/useSettings';
-import { computed, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import ArticleToolbarSettings from './ArticleToolbarSettings.vue';
-import { parseToolbarLayout } from '@/utils/articleToolbar';
-import SiYuanIcon from '@/components/common/SiYuanIcon.vue';
+import ArticleToolbarAction from './parts/ArticleToolbarAction.vue';
+import { parseToolbarLayout, type ToolbarActionID } from '@/utils/articleToolbar';
+import { withShortcut } from '@/composables/ui/shortcutBindings';
+import { PHONE_QUERY } from '@/composables/ui/usePhoneLayout';
 import { useSiYuanExport } from '@/composables/article/useSiYuanExport';
-import {
-  PhArrowLeft,
-  PhX,
-  PhGlobe,
-  PhArticle,
-  PhCircle,
-  PhStar,
-  PhClockCountdown,
-  PhArrowSquareOut,
-  PhLinkSimple,
-  PhTextT,
-  PhTranslate,
-  PhArrowClockwise,
-  PhSlidersHorizontal,
-  PhBookOpenText,
-  PhSpinnerGap,
-} from '@phosphor-icons/vue';
+import { PhArrowLeft, PhDotsThree, PhSlidersHorizontal, PhX } from '@phosphor-icons/vue';
 import type { Article } from '@/types/models';
 import { copyArticleLink, copyArticleTitle } from '@/utils/clipboard';
 
@@ -31,35 +16,25 @@ const { t } = useI18n();
 const { settings, fetchSettings } = useSettings();
 const showToolbarSettings = ref(false);
 const { isExporting: isExportingToSiYuan, exportToSiYuan } = useSiYuanExport();
-const visibleActions = computed(() =>
-  parseToolbarLayout(settings.value.article_toolbar_layout).filter((item) => item.visible)
+
+const props = withDefaults(
+  defineProps<{
+    article: Article;
+    showContent: boolean;
+    showTranslations?: boolean;
+    isModal?: boolean;
+    isLoadingContent?: boolean;
+    isReadingModeLoading?: boolean;
+  }>(),
+  {
+    showTranslations: true,
+    isModal: false,
+    isLoadingContent: false,
+    isReadingModeLoading: false,
+  }
 );
 
-onMounted(async () => {
-  try {
-    await fetchSettings();
-  } catch (e) {
-    console.error('Error loading settings:', e);
-  }
-});
-
-interface Props {
-  article: Article;
-  showContent: boolean;
-  showTranslations?: boolean;
-  isModal?: boolean;
-  isLoadingContent?: boolean;
-  isReadingModeLoading?: boolean;
-}
-
-withDefaults(defineProps<Props>(), {
-  showTranslations: true,
-  isModal: false,
-  isLoadingContent: false,
-  isReadingModeLoading: false,
-});
-
-defineEmits<{
+const emit = defineEmits<{
   close: [];
   toggleContentView: [];
   readingMode: [];
@@ -73,6 +48,165 @@ defineEmits<{
   exportToNotion: [];
   exportToZotero: [];
 }>();
+
+// Phones get the first four actions inline and the rest in a menu, so every
+// button can be a 40px touch target instead of a 26px icon. The user's order
+// from the toolbar customizer decides what stays visible.
+const PHONE_INLINE_ACTIONS = 4;
+
+const isPhone = ref(
+  typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia(PHONE_QUERY).matches
+);
+let phoneQuery: MediaQueryList | null = null;
+
+function onPhoneChange(event: MediaQueryListEvent) {
+  isPhone.value = event.matches;
+}
+
+const availableActions = computed<ToolbarActionID[]>(() =>
+  parseToolbarLayout(settings.value.article_toolbar_layout)
+    .filter((item) => {
+      if (!item.visible) return false;
+      switch (item.id) {
+        case 'translation':
+          return (
+            props.showContent &&
+            settings.value.translation_enabled &&
+            !settings.value.translation_only_mode
+          );
+        case 'obsidian':
+          return settings.value.obsidian_enabled;
+        case 'notion':
+          return settings.value.notion_enabled;
+        case 'zotero':
+          return settings.value.zotero_enabled;
+        case 'siyuan':
+          return settings.value.siyuan_enabled;
+        default:
+          return true;
+      }
+    })
+    .map((item) => item.id)
+);
+
+const inlineActions = computed(() =>
+  isPhone.value ? availableActions.value.slice(0, PHONE_INLINE_ACTIONS) : availableActions.value
+);
+const overflowActions = computed(() =>
+  isPhone.value ? availableActions.value.slice(PHONE_INLINE_ACTIONS) : []
+);
+
+const menuOpen = ref(false);
+const menuTrigger = ref<HTMLButtonElement | null>(null);
+const menuPanel = ref<HTMLElement | null>(null);
+const menuPosition = ref({ top: '0px', right: '8px', maxHeight: '60vh' });
+
+async function openMenu() {
+  menuOpen.value = true;
+  await nextTick();
+  const anchor = menuTrigger.value?.getBoundingClientRect();
+  if (!anchor) return;
+  const top = anchor.bottom + 6;
+  menuPosition.value = {
+    top: `${Math.round(top)}px`,
+    right: `${Math.round(Math.max(8, window.innerWidth - anchor.right))}px`,
+    maxHeight: `${Math.max(160, Math.round(window.innerHeight - top - 8))}px`,
+  };
+  menuPanel.value?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+}
+
+function closeMenu(restoreFocus = false) {
+  menuOpen.value = false;
+  if (restoreFocus) menuTrigger.value?.focus();
+}
+
+function onDocumentPointerDown(event: Event) {
+  if (!menuOpen.value) return;
+  const target = event.target;
+  if (
+    target instanceof Node &&
+    (menuPanel.value?.contains(target) || menuTrigger.value?.contains(target))
+  )
+    return;
+  closeMenu();
+}
+
+function onViewportChange() {
+  if (menuOpen.value) closeMenu();
+}
+
+onMounted(async () => {
+  phoneQuery = window.matchMedia?.(PHONE_QUERY) ?? null;
+  if (phoneQuery) {
+    isPhone.value = phoneQuery.matches;
+    phoneQuery.addEventListener('change', onPhoneChange);
+  }
+  document.addEventListener('pointerdown', onDocumentPointerDown);
+  window.addEventListener('resize', onViewportChange);
+  window.addEventListener('scroll', onViewportChange, true);
+  try {
+    await fetchSettings();
+  } catch (e) {
+    console.error('Error loading settings:', e);
+  }
+});
+
+onBeforeUnmount(() => {
+  phoneQuery?.removeEventListener('change', onPhoneChange);
+  document.removeEventListener('pointerdown', onDocumentPointerDown);
+  window.removeEventListener('resize', onViewportChange);
+  window.removeEventListener('scroll', onViewportChange, true);
+});
+
+function runAction(id: ToolbarActionID) {
+  closeMenu();
+  switch (id) {
+    case 'readingMode':
+      emit('readingMode');
+      break;
+    case 'view':
+      emit('toggleContentView');
+      break;
+    case 'translation':
+      emit('toggleTranslations');
+      break;
+    case 'read':
+      emit('toggleRead');
+      break;
+    case 'favorite':
+      emit('toggleFavorite');
+      break;
+    case 'readLater':
+      emit('toggleReadLater');
+      break;
+    case 'browser':
+      emit('openOriginal');
+      break;
+    case 'copyTitle':
+      void copyTitle(props.article);
+      break;
+    case 'copyLink':
+      void copyLink(props.article);
+      break;
+    case 'reload':
+      emit('reloadContent');
+      break;
+    case 'obsidian':
+      emit('exportToObsidian');
+      break;
+    case 'notion':
+      emit('exportToNotion');
+      break;
+    case 'zotero':
+      emit('exportToZotero');
+      break;
+    case 'siyuan':
+      void exportToSiYuan(props.article.id);
+      break;
+  }
+}
 
 async function copyLink(article: Article) {
   const success = await copyArticleLink(article.url);
@@ -100,217 +234,50 @@ async function copyTitle(article: Article) {
     <!-- Modal mode: X button always visible -->
     <button
       v-if="isModal"
-      class="flex items-center gap-1.5 sm:gap-2 text-text-secondary hover:text-text-primary text-sm sm:text-base"
+      class="back-hit relative flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary sm:gap-2 sm:text-base"
       :title="withShortcut(t('common.close'), 'closeArticle')"
-      @click="$emit('close')"
+      @click="emit('close')"
     >
       <PhX :size="20" class="sm:w-5 sm:h-5" />
     </button>
     <!-- Normal mode: Back button on mobile -->
     <button
       v-else
-      class="md:hidden flex items-center gap-1.5 sm:gap-2 text-text-secondary hover:text-text-primary text-sm sm:text-base"
-      @click="$emit('close')"
+      class="back-hit relative md:hidden flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary sm:gap-2 sm:text-base"
+      @click="emit('close')"
     >
       <PhArrowLeft :size="18" class="sm:w-5 sm:h-5" />
-      <span class="hidden xs:inline">{{ t('common.back') }}</span>
+      <span class="hidden min-[400px]:inline">{{ t('common.back') }}</span>
     </button>
     <div class="flex flex-wrap justify-end gap-1 sm:gap-2 ml-auto">
-      <template v-for="action in visibleActions" :key="action.id">
-        <button
-          v-if="action.id === 'readingMode'"
-          class="action-btn disabled:opacity-50 disabled:cursor-not-allowed"
-          :title="t('article.action.readingMode')"
-          :aria-label="t('article.action.readingMode')"
-          :disabled="isLoadingContent || isReadingModeLoading"
-          :aria-busy="isReadingModeLoading"
-          @click="$emit('readingMode')"
-        >
-          <PhSpinnerGap v-if="isReadingModeLoading" :size="18" class="animate-spin sm:w-5 sm:h-5" />
-          <PhBookOpenText v-else :size="18" class="sm:w-5 sm:h-5" />
-        </button>
-        <button
-          v-if="action.id === 'view'"
-          class="action-btn"
-          :title="
-            withShortcut(
-              showContent ? t('article.action.viewOriginal') : t('article.action.viewContent'),
-              'toggleContentView'
-            )
-          "
-          @click="$emit('toggleContentView')"
-        >
-          <PhGlobe v-if="showContent" :size="18" class="sm:w-5 sm:h-5" />
-          <PhArticle v-else :size="18" class="sm:w-5 sm:h-5" />
-        </button>
-        <button
-          v-if="
-            action.id === 'translation' &&
-            showContent &&
-            settings.translation_enabled &&
-            !settings.translation_only_mode
-          "
-          class="action-btn"
-          :title="
-            showTranslations
-              ? t('setting.reading.hideTranslations')
-              : t('setting.reading.showTranslations')
-          "
-          @click="$emit('toggleTranslations')"
-        >
-          <PhTranslate
-            :size="18"
-            class="sm:w-5 sm:h-5"
-            :weight="showTranslations ? 'fill' : 'regular'"
-          />
-        </button>
-        <button
-          class="action-btn"
-          :title="
-            withShortcut(
-              article.is_read ? t('article.action.markAsUnread') : t('article.action.markAsRead'),
-              'toggleReadStatus'
-            )
-          "
-          @click="$emit('toggleRead')"
-          v-if="action.id === 'read'"
-        >
-          <PhCircle
-            :size="18"
-            class="sm:w-5 sm:h-5"
-            :class="{ 'text-accent': !article.is_read }"
-            :weight="article.is_read ? 'regular' : 'fill'"
-          />
-        </button>
-        <button
-          :class="[
-            'action-btn',
-            article.is_favorite ? 'text-yellow-500 hover:text-yellow-600' : 'hover:text-yellow-500',
-          ]"
-          :title="
-            withShortcut(
-              article.is_favorite
-                ? t('article.action.removeFromFavorite')
-                : t('article.toolbar.addToFavorite'),
-              'toggleFavoriteStatus'
-            )
-          "
-          @click="$emit('toggleFavorite')"
-          v-if="action.id === 'favorite'"
-        >
-          <PhStar
-            :size="18"
-            class="sm:w-5 sm:h-5"
-            :weight="article.is_favorite ? 'fill' : 'regular'"
-          />
-        </button>
-        <button
-          :class="[
-            'action-btn',
-            article.is_read_later ? 'text-blue-500 hover:text-blue-600' : 'hover:text-blue-500',
-          ]"
-          :title="
-            withShortcut(
-              article.is_read_later
-                ? t('article.action.removeFromReadLater')
-                : t('article.toolbar.addToReadLater'),
-              'toggleReadLaterStatus'
-            )
-          "
-          @click="$emit('toggleReadLater')"
-          v-if="action.id === 'readLater'"
-        >
-          <PhClockCountdown
-            :size="18"
-            class="sm:w-5 sm:h-5"
-            :weight="article.is_read_later ? 'fill' : 'regular'"
-          />
-        </button>
-        <button
-          class="action-btn"
-          :title="withShortcut(t('article.action.openInBrowser'), 'openInBrowser')"
-          @click="$emit('openOriginal')"
-          v-if="action.id === 'browser'"
-        >
-          <PhArrowSquareOut :size="18" class="sm:w-5 sm:h-5" />
-        </button>
-        <button
-          class="action-btn"
-          :title="t('common.contextMenu.copyTitle')"
-          :disabled="!article.title"
-          :aria-label="t('common.contextMenu.copyTitle')"
-          @click="copyTitle(article)"
-          v-if="action.id === 'copyTitle'"
-        >
-          <PhTextT :size="18" class="sm:w-5 sm:h-5" />
-        </button>
-        <button
-          class="action-btn"
-          :title="t('common.contextMenu.copyLink')"
-          :disabled="!article.url"
-          :aria-label="t('common.contextMenu.copyLink')"
-          @click="copyLink(article)"
-          v-if="action.id === 'copyLink'"
-        >
-          <PhLinkSimple :size="18" class="sm:w-5 sm:h-5" />
-        </button>
-        <button
-          class="action-btn"
-          :title="t('article.action.reloadContent')"
-          @click="$emit('reloadContent')"
-          v-if="action.id === 'reload'"
-        >
-          <PhArrowClockwise :size="18" class="sm:w-5 sm:h-5" />
-        </button>
-        <button
-          v-if="action.id === 'obsidian' && settings.obsidian_enabled"
-          class="action-btn"
-          :title="t('setting.plugins.obsidian.exportTo')"
-          @click="$emit('exportToObsidian')"
-        >
-          <img
-            src="/assets/plugin_icons/obsidian.svg"
-            class="w-[18px] h-[18px] sm:w-5 sm:h-5"
-            alt="Obsidian"
-          />
-        </button>
-        <button
-          v-if="action.id === 'notion' && settings.notion_enabled"
-          class="action-btn"
-          :title="t('setting.plugins.notion.exportTo')"
-          @click="$emit('exportToNotion')"
-        >
-          <img
-            src="/assets/plugin_icons/notion.svg"
-            class="w-[18px] h-[18px] sm:w-5 sm:h-5"
-            alt="Notion"
-          />
-        </button>
-        <button
-          v-if="action.id === 'zotero' && settings.zotero_enabled"
-          class="action-btn"
-          :title="t('setting.plugins.zotero.exportTo')"
-          @click="$emit('exportToZotero')"
-        >
-          <img
-            src="/assets/plugin_icons/zotero.png"
-            class="w-[18px] h-[18px] sm:w-5 sm:h-5"
-            alt="Zotero"
-          />
-        </button>
-        <button
-          v-if="action.id === 'siyuan' && settings.siyuan_enabled"
-          class="action-btn disabled:opacity-50 disabled:cursor-wait"
-          :title="t('setting.plugins.siyuan.exportTo')"
-          :disabled="isExportingToSiYuan"
-          :aria-busy="isExportingToSiYuan"
-          @click="exportToSiYuan(article.id)"
-        >
-          <SiYuanIcon class="w-[18px] h-[18px] sm:w-5 sm:h-5" />
-        </button>
-      </template>
+      <ArticleToolbarAction
+        v-for="id in inlineActions"
+        :key="id"
+        :item="id"
+        :article="article"
+        :show-content="showContent"
+        :show-translations="showTranslations"
+        :is-content-loading="isLoadingContent"
+        :is-reading-mode-loading="isReadingModeLoading"
+        :is-exporting="isExportingToSiYuan"
+        @run="runAction(id)"
+      />
       <button
-        class="action-btn"
+        v-if="overflowActions.length > 0"
+        ref="menuTrigger"
+        type="button"
+        class="toolbar-button"
+        :title="t('article.toolbar.moreActions')"
+        :aria-label="t('article.toolbar.moreActions')"
+        :aria-expanded="menuOpen"
+        aria-haspopup="menu"
+        @click="menuOpen ? closeMenu() : openMenu()"
+      >
+        <PhDotsThree :size="20" class="sm:h-5 sm:w-5" weight="bold" />
+      </button>
+      <button
+        type="button"
+        class="toolbar-button"
         :title="t('article.toolbar.customize')"
         :aria-label="t('article.toolbar.customize')"
         @click="showToolbarSettings = true"
@@ -320,13 +287,42 @@ async function copyTitle(article: Article) {
     </div>
   </div>
   <Teleport to="body">
+    <div
+      v-if="menuOpen"
+      ref="menuPanel"
+      role="menu"
+      class="fixed z-50 w-64 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-xl border border-border bg-bg-primary p-1 shadow-xl"
+      :style="menuPosition"
+      @keydown.esc.stop.prevent="closeMenu(true)"
+    >
+      <ArticleToolbarAction
+        v-for="id in overflowActions"
+        :key="id"
+        :item="id"
+        variant="menu"
+        :article="article"
+        :show-content="showContent"
+        :show-translations="showTranslations"
+        :is-content-loading="isLoadingContent"
+        :is-reading-mode-loading="isReadingModeLoading"
+        :is-exporting="isExportingToSiYuan"
+        @run="runAction(id)"
+      />
+    </div>
     <ArticleToolbarSettings v-if="showToolbarSettings" @close="showToolbarSettings = false" />
   </Teleport>
 </template>
 
 <style scoped>
 @reference "../../style.css";
-.action-btn {
-  @apply text-lg sm:text-xl cursor-pointer text-text-secondary p-1 sm:p-1.5 rounded-md transition-colors hover:bg-bg-tertiary hover:text-text-primary;
+.toolbar-button {
+  @apply flex h-10 w-10 cursor-pointer items-center justify-center rounded-md text-lg text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text-primary sm:h-auto sm:w-auto sm:p-1.5 sm:text-xl;
+}
+
+/* The back arrow is only 18px; grow its hit area without moving the icon. */
+.back-hit::after {
+  content: '';
+  position: absolute;
+  inset: -10px;
 }
 </style>

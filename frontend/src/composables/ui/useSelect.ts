@@ -25,8 +25,6 @@ interface UseSelectOptions {
   desiredMaxHeight?: Ref<string>;
 }
 
-interface DropdownPositionStyle extends CSSProperties {}
-
 export function useSelect(options: UseSelectOptions) {
   const selectedIndex = ref(-1);
   const triggerRef = ref<HTMLElement>();

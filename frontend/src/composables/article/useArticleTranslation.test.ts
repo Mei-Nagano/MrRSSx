@@ -40,7 +40,7 @@ describe('automatic title translation during refresh', () => {
   const article = () => ({ id: 1, title: 'Title' }) as Article;
   function enter() {
     callback(
-      [{ target: row, isIntersecting: true } as IntersectionObserverEntry],
+      [{ target: row, isIntersecting: true } as unknown as IntersectionObserverEntry],
       {} as IntersectionObserver
     );
   }
@@ -123,7 +123,7 @@ describe('automatic title translation during refresh', () => {
     enter();
     await vi.advanceTimersByTimeAsync(0);
     callback(
-      [{ target: row, isIntersecting: false } as IntersectionObserverEntry],
+      [{ target: row, isIntersecting: false } as unknown as IntersectionObserverEntry],
       {} as IntersectionObserver
     );
     await vi.advanceTimersByTimeAsync(1000);

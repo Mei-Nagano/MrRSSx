@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n';
 import type { SettingsData } from '@/types/settings';
 import type { ThemePreference } from '@/stores/app';
 import { generateInitialSettings, parseSettingsData } from './useSettings.generated';
+import { resolveLocale } from '@/i18n/locale';
 
 const sharedSettings: Ref<SettingsData> = ref(generateInitialSettings());
 
@@ -43,7 +44,7 @@ export function useSettings() {
   function applySettings(data: SettingsData, setTheme: (preference: ThemePreference) => void) {
     // Apply the saved language
     if (data.language) {
-      locale.value = data.language;
+      locale.value = resolveLocale(data.language);
     }
 
     // Apply the saved theme

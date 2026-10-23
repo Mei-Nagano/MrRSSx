@@ -410,7 +410,7 @@ async function refreshFeeds(): Promise<void> {
   if (store.refreshProgress.isRunning) return;
 
   refreshRequested.value = true;
-  await store.refreshFeeds();
+  await store.refreshFeeds({ announceErrors: true });
 
   // A refresh with no queued work can finish before the progress watcher runs.
   if (!store.refreshProgress.isRunning && refreshRequested.value) {
@@ -585,6 +585,7 @@ onUnmounted(() => {
       :columns="masonryLayout.columns.value"
       :image-dimensions="masonryLayout.imageDimensions.value"
       :is-loading="galleryData.isLoading.value"
+      :is-refreshing="store.refreshProgress.isRunning"
       :show-only-unread="galleryData.showOnlyUnread.value"
       :show-text-overlay="showTextOverlay"
       :image-count-cache="galleryData.imageCountCache.value"
@@ -596,6 +597,7 @@ onUnmounted(() => {
       @context-menu="handleContextMenu"
       @toggle-favorite="imageActions.toggleFavorite"
       @mark-all-read="markAllGalleryRead"
+      @refresh="refreshFeeds"
       @container-mounted="
         (el) => {
           masonryLayout.containerRef.value = el;

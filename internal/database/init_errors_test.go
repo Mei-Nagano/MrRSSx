@@ -1,15 +1,11 @@
 package database
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"modernc.org/sqlite"
-	sqlite3 "modernc.org/sqlite/lib"
 )
 
 func TestInitializationExplainsUnopenableDatabase(t *testing.T) {
@@ -21,8 +17,7 @@ func TestInitializationExplainsUnopenableDatabase(t *testing.T) {
 	}
 	defer db.Close()
 	err = db.Init()
-	var sqliteErr *sqlite.Error
-	if !errors.As(err, &sqliteErr) || sqliteErr.Code()&0xff != sqlite3.SQLITE_CANTOPEN {
+	if code, ok := sqlitePrimaryCode(err); !ok || code != sqliteCantOpen {
 		t.Fatalf("expected preserved SQLITE_CANTOPEN, got %v", err)
 	}
 	if !strings.Contains(err.Error(), "data directory") || strings.Contains(strings.ToLower(err.Error()), "out of memory") {
@@ -42,8 +37,7 @@ func TestInitializationDoesNotRepairInvalidDatabase(t *testing.T) {
 	}
 	err = db.Init()
 	_ = db.Close()
-	var sqliteErr *sqlite.Error
-	if !errors.As(err, &sqliteErr) || sqliteErr.Code()&0xff != sqlite3.SQLITE_NOTADB {
+	if code, ok := sqlitePrimaryCode(err); !ok || code != sqliteNotADB {
 		t.Fatalf("expected preserved SQLITE_NOTADB, got %v", err)
 	}
 	if !strings.Contains(err.Error(), "back up the complete data directory") {

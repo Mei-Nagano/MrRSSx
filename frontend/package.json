@@ -9,6 +9,7 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint . --fix",
+    "type-check": "tsc -p tsconfig.json",
     "format": "prettier --write src/",
     "prepare": "husky",
     "test": "vitest",

@@ -5,9 +5,9 @@ includes:
   windows: ./build/windows/Taskfile.yml
   darwin: ./build/darwin/Taskfile.yml
   linux: ./build/linux/Taskfile.yml
-  # iOS and Android are optional - only include if needed
+  android: ./build/android/Taskfile.yml
+  # iOS is optional - only include if needed
   # ios: ./build/ios/Taskfile.yml
-  # android: ./build/android/Taskfile.yml
 
 vars:
   APP_NAME: "MrRSS"

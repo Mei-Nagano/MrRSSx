@@ -31,9 +31,39 @@ Server data defaults to `./data` relative to the working directory. Use `--data-
 
 服务端数据默认保存在启动工作目录下的 `./data`，可通过 `--data-dir 路径` 或 `MRRSS_DATA_DIR` 指定位置，详见[自定义数据目录](../DATA_DIRECTORY.md)。重启时请保持目录一致。它不会自动共享或同步桌面版数据库；原生文件对话框、窗口控制也不是浏览器功能。
 
-The example binds to loopback. Network deployment needs controlled access to the entire reader and API; this server does not provide a user login. See the [API reference](swagger.json).
+The example binds to loopback. Network deployment needs controlled access to the entire reader and API; see [Access token](#access-token--访问令牌) below. The API reference is in [swagger.json](swagger.json).
 
-以上示例仅监听本机。向网络开放时应对整个阅读器和 API 配置访问控制；服务端没有用户登录功能。接口见 [API 文档](swagger.json)。
+以上示例仅监听本机。向网络开放时需要对整个阅读器和 API 做访问控制，见下方[访问令牌](#access-token--访问令牌)。接口见 [API 文档](swagger.json)。
+
+## Access token / 访问令牌
+
+Without a token the server trusts everyone who can reach the port, which is only appropriate on loopback. Set a token before exposing the reader to a LAN, a VPN or the internet:
+
+未设置令牌时，服务端信任所有能访问该端口的人，只适合本机监听。把阅读器开放到局域网、VPN 或公网前，请先设置令牌：
+
+```sh
+./mrrss-server --auth-token "your-long-random-token"
+# or
+MRRSS_AUTH_TOKEN="your-long-random-token" ./mrrss-server
+```
+
+Every reader route and every `/api/*` call then requires the cookie written by `/login`, so a browser asks for the token once and stays signed in for 30 days. The installed app shell, its icons and the service worker stay public so the page can load; no reader data is served without the cookie. API clients that are not browsers receive `401` with `{"error":"authentication required"}` instead of a redirect. Visiting `/logout` clears the cookie.
+
+此后所有阅读器页面和 `/api/*` 接口都要求 `/login` 写入的 Cookie：浏览器只需输入一次令牌，30 天内保持登录。应用外壳、图标和 Service Worker 保持公开以便页面加载，但任何阅读数据都需要该 Cookie。非浏览器的 API 客户端会收到 `401` 和 `{"error":"authentication required"}`，而不是跳转。访问 `/logout` 可清除 Cookie。
+
+Choose a long random value and pass it through the environment rather than the command line when the process list is visible to other users. The token is compared in constant time and stored in an `HttpOnly`, `SameSite=Lax` cookie, marked `Secure` when the request arrives over HTTPS.
+
+令牌请使用足够长的随机值；如果进程列表对其他用户可见，优先用环境变量而不是命令行传入。令牌以恒定时间比较，保存在 `HttpOnly`、`SameSite=Lax` 的 Cookie 中，HTTPS 请求下会标记 `Secure`。
+
+## Install on a phone / 安装到手机
+
+The browser build is an installable PWA: open the reader on the phone and use **Add to Home Screen** (iOS Safari) or **Install app** (Android Chrome). It then opens without browser chrome and the app shell loads from cache, while articles, settings and reading state always come from the server.
+
+浏览器构建是可安装的 PWA：在手机上打开阅读器，使用 **添加到主屏幕**（iOS Safari）或 **安装应用**（Android Chrome）。安装后以独立窗口打开，应用外壳从缓存加载；文章、设置和阅读状态始终来自服务端。
+
+The service worker only caches the shell (`/`, hashed assets and icons). Everything under `/api/` always goes to the network, so the reader never shows stale subscriptions or reading state. Article content still needs a reachable server; the shell cache covers reloads and flaky connections, not offline reading.
+
+Service Worker 只缓存外壳（`/`、带哈希的静态资源和图标），`/api/` 下的请求一律走网络，因此不会出现过期订阅或阅读状态。文章内容仍需要服务端可达：外壳缓存覆盖刷新和弱网场景，不等于离线阅读。
 
 ## GHCR image access / 容器镜像访问
 

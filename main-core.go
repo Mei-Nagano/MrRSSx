@@ -4,12 +4,13 @@ package main
 
 import (
 	"context"
-	"embed"
 	"flag"
 	"fmt"
 	"io"
 	"io/fs"
 	"log"
+	"mime"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,6 +23,7 @@ import (
 	"MrRSS/internal/database"
 	"MrRSS/internal/feed"
 	handlers "MrRSS/internal/handlers/core"
+	"MrRSS/internal/middleware"
 	"MrRSS/internal/network"
 	"MrRSS/internal/routes"
 	"MrRSS/internal/translation"
@@ -49,28 +51,17 @@ import (
 // @name Authorization
 // @description Type "Bearer" followed by a space and JWT token.
 
-var debugLogging = os.Getenv("MRRSS_DEBUG") != ""
-
-func debugLog(format string, args ...interface{}) {
-	if debugLogging {
-		log.Printf(format, args...)
+// isLoopbackHost reports whether the listen address is only reachable from this
+// machine, which decides whether running without an access token is safe.
+func isLoopbackHost(host string) bool {
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
 	}
-}
-
-//go:embed frontend/dist
-var frontendFiles embed.FS
-
-type CombinedHandler struct {
-	apiMux     *http.ServeMux
-	fileServer http.Handler
-}
-
-func (h *CombinedHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if strings.HasPrefix(r.URL.Path, "/api/") {
-		h.apiMux.ServeHTTP(w, r)
-		return
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
 	}
-	h.fileServer.ServeHTTP(w, r)
+	return false
 }
 
 func main() {
@@ -86,6 +77,7 @@ func main() {
 	host := flag.String("host", "0.0.0.0", "Host to listen on in server mode")
 	port := flag.String("port", "1234", "Port to listen on in server mode")
 	dataDirOption := flag.String("data-dir", "", "Data directory (defaults to MRRSS_DATA_DIR or ./data)")
+	authToken := flag.String("auth-token", "", "Require this access token for browser access (defaults to MRRSS_AUTH_TOKEN)")
 	flag.Parse()
 	if err := fileutil.ConfigureDataDir(*dataDirOption); err != nil {
 		log.Fatal(err)
@@ -176,7 +168,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fileServer := http.FileServer(http.FS(frontendFS))
+	// Browsers install the PWA using this manifest; serve it with the
+	// registered media type instead of the generic text/plain fallback.
+	if err := mime.AddExtensionType(".webmanifest", "application/manifest+json"); err != nil {
+		log.Printf("Warning: could not register the web manifest media type: %v", err)
+	}
+
+	fileServer := newFrontendFileServer(frontendFS)
 
 	combinedHandler := &CombinedHandler{
 		apiMux:     apiMux,
@@ -184,6 +182,22 @@ func main() {
 	}
 
 	log.Printf("Starting in headless server mode on http://%s:%s", *host, *port)
+
+	// Access control. A token protects every reader route and API call; without
+	// one the server keeps its previous "trusted network" behaviour.
+	accessToken := strings.TrimSpace(*authToken)
+	if accessToken == "" {
+		accessToken = strings.TrimSpace(os.Getenv("MRRSS_AUTH_TOKEN"))
+	}
+	var rootHandler http.Handler = combinedHandler
+	if accessToken != "" {
+		rootHandler = middleware.RequireToken(accessToken, combinedHandler)
+		log.Println("Access token protection enabled")
+	} else if !isLoopbackHost(*host) {
+		log.Println("WARNING: no access token configured and the server is reachable from the network. " +
+			"Anyone who can reach this port can read and change every subscription and setting. " +
+			"Start with --auth-token or MRRSS_AUTH_TOKEN to require a token.")
+	}
 
 	// Start background scheduler
 	// Use a context that we can cancel on shutdown
@@ -210,7 +224,7 @@ func main() {
 	// Start HTTP Server
 	srv := &http.Server{
 		Addr:    *host + ":" + *port,
-		Handler: combinedHandler,
+		Handler: rootHandler,
 	}
 
 	go func() {

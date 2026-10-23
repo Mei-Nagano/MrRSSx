@@ -12,7 +12,10 @@ describe('shared translation request budget', () => {
   it('retains limited titles and paragraphs, probes recovery once, then restores normal speed', async () => {
     const { requestTranslation, translationQueue } = await import('./translationRequest');
     const pending: Array<(res: Response) => void> = [];
-    const fetchMock = vi.fn(() => new Promise<Response>((resolve) => pending.push(resolve)));
+    const fetchMock = vi.fn(
+      (_url: string, _init?: RequestInit) =>
+        new Promise<Response>((resolve) => pending.push(resolve))
+    );
     vi.stubGlobal('fetch', fetchMock);
     const requests = Array.from({ length: 20 }, (_, i) =>
       requestTranslation(i % 2 ? '/titles' : '/paragraphs', {})
@@ -52,7 +55,10 @@ describe('shared translation request budget', () => {
   it('drops obsolete queued work before making a network request', async () => {
     const { requestTranslation } = await import('./translationRequest');
     const pending: Array<(res: Response) => void> = [];
-    const fetchMock = vi.fn(() => new Promise<Response>((resolve) => pending.push(resolve)));
+    const fetchMock = vi.fn(
+      (_url: string, _init?: RequestInit) =>
+        new Promise<Response>((resolve) => pending.push(resolve))
+    );
     vi.stubGlobal('fetch', fetchMock);
     const running = Array.from({ length: 3 }, () => requestTranslation('/titles', {}));
     let current = true;
@@ -81,7 +87,10 @@ describe('shared translation request budget', () => {
   it('prioritizes the current article and waits for one successful recovery probe', async () => {
     const { requestTranslation } = await import('./translationRequest');
     const pending: Array<(res: Response) => void> = [];
-    const fetchMock = vi.fn(() => new Promise<Response>((resolve) => pending.push(resolve)));
+    const fetchMock = vi.fn(
+      (_url: string, _init?: RequestInit) =>
+        new Promise<Response>((resolve) => pending.push(resolve))
+    );
     vi.stubGlobal('fetch', fetchMock);
     const titles = Array.from({ length: 6 }, () =>
       requestTranslation('/titles', {}, () => true, 'background')
@@ -93,7 +102,7 @@ describe('shared translation request budget', () => {
     fetchMock.mockResolvedValueOnce(new Response('{"cache_miss":true}', { status: 202 }));
     const content = requestTranslation('/paragraphs', {});
     await vi.advanceTimersByTimeAsync(0);
-    expect(fetchMock.mock.lastCall?.[1].body).toBe('{"cache_only":true}');
+    expect(fetchMock.mock.lastCall?.[1]?.body).toBe('{"cache_only":true}');
     await vi.advanceTimersByTimeAsync(2000);
     expect(fetchMock).toHaveBeenLastCalledWith('/paragraphs', expect.any(Object));
     await vi.advanceTimersByTimeAsync(5000);

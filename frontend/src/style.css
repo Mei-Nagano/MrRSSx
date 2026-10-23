@@ -162,6 +162,44 @@ textarea,
   background: #666;
 }
 
+/* Phones get a thin bar. A 10px scrollbar is a fifth of a 44px tab strip, and
+   styling `::-webkit-scrollbar` turns Chromium's overlay bars into ones that
+   take layout space — so the strip lost 11px of a 65px row to a bar nobody
+   drags on a touch screen. 4px keeps the position cue and gives the row back. */
+@media (max-width: 767px) {
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    border-radius: 2px;
+  }
+
+  /* Engines without the WebKit pseudo-elements (Firefox in server mode) get the
+     standard property instead. It is kept out of the Chromium path on purpose:
+     when both are set, Chromium lets `scrollbar-width` win and drops the 4px
+     bar above. */
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: thin;
+    }
+  }
+
+  /* Every form control is sized from `--ui-control-height` — selects, the
+     settings inputs, the feed form. 38px is a mouse measurement; a thumb needs
+     40, and one variable moves all of them. `.input-field` is the second half
+     of the story: the feed form and the rule editor size their inputs with
+     padding alone, so they never read the variable. */
+  :root {
+    --ui-control-height: 2.5rem;
+  }
+
+  .input-field {
+    min-height: 2.5rem;
+  }
+}
+
 /* Firefox select styling fix for dark mode */
 .dark-mode select {
   background-color: var(--bg-primary) !important;
@@ -269,4 +307,20 @@ select:focus {
 /* Fixed line height utility */
 .line-height-fixed-32 {
   line-height: 32px !important;
+}
+
+/*
+ * Full-screen overlays on phones.
+ *
+ * The native Android WebView draws edge to edge, so a `fixed inset-0` overlay
+ * sits under the status bar and the gesture area. Insets are CSS environment
+ * variables that only resolve where the platform reports them (0 elsewhere), so
+ * this class is harmless in a desktop window or a browser tab. Use it on any
+ * overlay whose content would otherwise collide with system UI.
+ */
+.phone-safe-inset {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
 }

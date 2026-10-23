@@ -1,4 +1,4 @@
-import i18n from '@/i18n';
+import { translate } from '@/i18n';
 
 /**
  * Opens a URL in the user's default web browser using Wails v3 Browser API.
@@ -41,12 +41,12 @@ export async function openInBrowser(url: string): Promise<void> {
       opened.location.href = target.href;
     }
 
-    window.showToast?.(i18n.global.t('common.toast.openedInBrowser'), 'success');
+    window.showToast?.(translate('common.toast.openedInBrowser'), 'success');
   } catch (error) {
     console.error('Error opening URL in browser:', error);
     // Show user-friendly error message
     if (window.showToast) {
-      window.showToast(i18n.global.t('common.errors.failedToOpenLink'), 'error');
+      window.showToast(translate('common.errors.failedToOpenLink'), 'error');
     }
   }
 }

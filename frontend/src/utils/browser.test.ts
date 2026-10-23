@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import i18n from '@/i18n';
+import { translate } from '@/i18n';
 import { openInBrowser } from './browser';
 
 describe('openInBrowser', () => {
@@ -22,7 +22,7 @@ describe('openInBrowser', () => {
     vi.spyOn(window, 'open').mockReturnValue(null);
     await openInBrowser('https://example.com');
     expect(window.showToast).toHaveBeenCalledExactlyOnceWith(
-      i18n.global.t('common.errors.failedToOpenLink'),
+      translate('common.errors.failedToOpenLink'),
       'error'
     );
   });
@@ -42,7 +42,7 @@ describe('openInBrowser', () => {
     expect(popup.opener).toBeNull();
     expect(popup.location.href).toBe('https://example.com/');
     expect(window.showToast).toHaveBeenCalledWith(
-      i18n.global.t('common.toast.openedInBrowser'),
+      translate('common.toast.openedInBrowser'),
       'success'
     );
   });
@@ -60,7 +60,7 @@ describe('openInBrowser', () => {
     await openInBrowser('https://example.com/');
     expect(open).not.toHaveBeenCalled();
     expect(window.showToast).toHaveBeenCalledWith(
-      i18n.global.t('common.errors.failedToOpenLink'),
+      translate('common.errors.failedToOpenLink'),
       'error'
     );
   });
@@ -78,10 +78,7 @@ describe('openInBrowser', () => {
 
     await openInBrowser('https://example.com');
 
-    expect(showToast).toHaveBeenCalledWith(
-      i18n.global.t('common.toast.openedInBrowser'),
-      'success'
-    );
+    expect(showToast).toHaveBeenCalledWith(translate('common.toast.openedInBrowser'), 'success');
   });
 
   it('does not show a success toast when opening the browser fails', async () => {
@@ -97,12 +94,9 @@ describe('openInBrowser', () => {
 
     await openInBrowser('https://example.com');
 
-    expect(showToast).toHaveBeenCalledWith(
-      i18n.global.t('common.errors.failedToOpenLink'),
-      'error'
-    );
+    expect(showToast).toHaveBeenCalledWith(translate('common.errors.failedToOpenLink'), 'error');
     expect(showToast).not.toHaveBeenCalledWith(
-      i18n.global.t('common.toast.openedInBrowser'),
+      translate('common.toast.openedInBrowser'),
       'success'
     );
   });

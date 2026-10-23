@@ -2,6 +2,7 @@
 import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { PhMagnifyingGlass, PhCaretUp, PhCaretDown, PhX } from '@phosphor-icons/vue';
+import { useAndroidBack, BACK_PRIORITY } from '@/composables/ui/useAndroidBack';
 
 const { t } = useI18n();
 
@@ -211,6 +212,12 @@ function close() {
   clearHighlights();
   emit('close');
 }
+
+// Back press closes the find bar before the article behind it.
+useAndroidBack(() => {
+  close();
+  return true;
+}, BACK_PRIORITY.findInPage);
 
 // Handle ESC key on input - only close if there's search content
 function handleEscOnInput() {

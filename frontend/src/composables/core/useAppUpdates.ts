@@ -17,7 +17,7 @@ export function useAppUpdates() {
   const downloadBytesWritten = ref(0);
   const downloadTotalBytes = ref(0);
   const downloadErrorCode = ref('');
-  let progressInterval: ReturnType<typeof window.setInterval> | undefined;
+  let progressInterval: number | undefined;
   let activeRequestId = '';
   onScopeDispose(() => {
     window.clearInterval(progressInterval);

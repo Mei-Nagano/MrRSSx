@@ -140,11 +140,6 @@ describe('App', () => {
       messages: { en },
     });
 
-    // Mock store methods
-    const mockFetchFeeds = vi.fn();
-    const mockFetchArticles = vi.fn();
-    const mockInitTheme = vi.fn();
-
     const wrapper = mount(App, {
       global: {
         plugins: [pinia, i18n],
@@ -293,7 +288,10 @@ describe('AI chat panel size', () => {
       window.dispatchEvent(new Event('resize'));
       expect(panel.style.width).toBe('650px');
       expect(JSON.parse(localStorage.getItem('mrrssChatPanelSize')!).width).toBe(650);
-      vi.spyOn(panel, 'getBoundingClientRect').mockReturnValue({ width: 650, height: 680 } as DOMRect);
+      vi.spyOn(panel, 'getBoundingClientRect').mockReturnValue({
+        width: 650,
+        height: 680,
+      } as DOMRect);
       await wrapper.get('.cursor-nw-resize').trigger('mousedown', { clientX: 100, clientY: 100 });
       document.dispatchEvent(new MouseEvent('mousemove', { clientX: 50, clientY: 60 }));
       document.dispatchEvent(new MouseEvent('mouseup'));
@@ -308,7 +306,6 @@ describe('AI chat panel size', () => {
     }
   });
 });
-
 
 describe('Rule logic localization', () => {
   it('localizes AND/OR labels while preserving emitted rule operators', async () => {
@@ -358,7 +355,6 @@ describe('Chat response preferences', () => {
   });
 });
 
-
 describe('Selected source titles', () => {
   it('omits only the all filter and localizes uncategorized selections', async () => {
     const pinia = createPinia();
@@ -403,38 +399,95 @@ describe('Selected source titles', () => {
 describe('Article context menu read status', () => {
   it('uses neutral read icons with distinct shapes while preserving status actions and colors', () => {
     const i18n = createI18n({ legacy: false, locale: 'en', messages: { en } });
+    type ComposerT = Parameters<typeof useArticleActions>[0];
+    const translate = (i18n as unknown as { global: { t: ComposerT } }).global.t;
     let actions: ReturnType<typeof useArticleActions>;
-    const wrapper = mount({
-      setup() {
-        actions = useArticleActions(i18n.global.t, { value: 'rendered' });
-        return {};
+    const wrapper = mount(
+      {
+        setup() {
+          actions = useArticleActions(translate, { value: 'rendered' });
+          return {};
+        },
+        template: '<div />',
       },
-      template: '<div />',
-    }, { global: { plugins: [createPinia(), i18n] } });
+      { global: { plugins: [createPinia(), i18n] } }
+    );
     const openMenu = vi.fn();
     window.addEventListener('open-context-menu', openMenu);
     try {
       for (const isRead of [false, true]) {
         const article: Article = {
-          id: 1, feed_id: 1, title: 'Article', url: 'https://example.com/article',
-          published_at: '2026-01-01T00:00:00Z', is_read: isRead,
-          is_favorite: true, is_read_later: true, is_hidden: false,
+          id: 1,
+          feed_id: 1,
+          title: 'Article',
+          url: 'https://example.com/article',
+          published_at: '2026-01-01T00:00:00Z',
+          is_read: isRead,
+          is_favorite: true,
+          is_read_later: true,
+          is_hidden: false,
         };
         actions!.showArticleContextMenu(new MouseEvent('contextmenu'), article);
         const event = openMenu.mock.calls.at(-1)![0] as CustomEvent;
         expect(event.detail.data).toBe(article);
         expect(event.detail.items[0]).toMatchObject({
-          action: 'toggleRead', icon: 'ph-circle', iconColor: 'text-text-secondary',
+          action: 'toggleRead',
+          icon: 'ph-circle',
+          iconColor: 'text-text-secondary',
           iconWeight: isRead ? 'regular' : 'fill',
-          label: i18n.global.t(isRead ? 'article.action.markAsUnread' : 'article.action.markAsRead'),
+          label: translate(isRead ? 'article.action.markAsUnread' : 'article.action.markAsRead'),
         });
-        expect(event.detail.items).toEqual(expect.arrayContaining([
-          expect.objectContaining({ action: 'toggleFavorite', iconColor: 'text-yellow-500' }),
-          expect.objectContaining({ action: 'toggleReadLater', iconColor: 'text-blue-500' }),
-        ]));
+        expect(event.detail.items).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ action: 'toggleFavorite', iconColor: 'text-yellow-500' }),
+            expect.objectContaining({ action: 'toggleReadLater', iconColor: 'text-blue-500' }),
+          ])
+        );
       }
     } finally {
       window.removeEventListener('open-context-menu', openMenu);
+      wrapper.unmount();
+    }
+  });
+
+  it('offers export actions only for plugins that are enabled', () => {
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en } });
+    type ComposerT = Parameters<typeof useArticleActions>[0];
+    const translate = (i18n as unknown as { global: { t: ComposerT } }).global.t;
+    let articleActions: ReturnType<typeof useArticleActions>;
+    const wrapper = mount(
+      {
+        setup() {
+          articleActions = useArticleActions(translate, { value: 'rendered' });
+          return {};
+        },
+        template: '<div />',
+      },
+      { global: { plugins: [createPinia(), i18n] } }
+    );
+    const openMenu = vi.fn();
+    window.addEventListener('open-context-menu', openMenu);
+    try {
+      setSettingsFromRawData({ obsidian_enabled: 'true' });
+      const article: Article = {
+        id: 1,
+        feed_id: 1,
+        title: 'Article',
+        url: 'https://example.com/article',
+        published_at: '2026-01-01T00:00:00Z',
+        is_read: false,
+        is_favorite: false,
+        is_read_later: false,
+        is_hidden: false,
+      };
+      articleActions!.showArticleContextMenu(new MouseEvent('contextmenu'), article);
+      const event = openMenu.mock.calls.at(-1)![0] as CustomEvent;
+      const items = event.detail.items.map((item: { action?: string }) => item.action);
+      expect(items).toContain('exportToObsidian');
+      expect(items).not.toContain('exportToNotion');
+    } finally {
+      window.removeEventListener('open-context-menu', openMenu);
+      setSettingsFromRawData({});
       wrapper.unmount();
     }
   });
@@ -469,7 +522,7 @@ describe('Chat generation cancellation', () => {
     const toast = vi.fn();
     const previousToast = window.showToast;
     window.showToast = toast;
-    const fetchMock = vi.fn((url: string, options?: RequestInit) => {
+    const fetchMock = vi.fn((url: string, _options?: RequestInit) => {
       if (url === '/api/ai/chat/session/create') return creation.promise;
       if (url === '/api/ai-chat') return generated.promise;
       return Promise.resolve(
@@ -525,7 +578,7 @@ describe('Chat generation cancellation', () => {
 
   it('preserves the first question when creating a session fails and retries it once', async () => {
     let createCount = 0;
-    const fetchMock = vi.fn((url: string, options?: RequestInit) => {
+    const fetchMock = vi.fn((url: string, _options?: RequestInit) => {
       if (url === '/api/ai/chat/session/create') {
         createCount++;
         return Promise.resolve(
@@ -582,7 +635,7 @@ describe('Chat generation cancellation', () => {
     const first = deferred<Response>();
     const second = deferred<Response>();
     let sendCount = 0;
-    const fetchMock = vi.fn((url: string, options?: RequestInit) => {
+    const fetchMock = vi.fn((url: string, _options?: RequestInit) => {
       if (url === '/api/ai/chat/session/create')
         return Promise.resolve(
           new Response(JSON.stringify({ id: 55, article_id: 12, title: 'first' }))

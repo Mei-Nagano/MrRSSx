@@ -8,6 +8,7 @@ import {
   PhDownloadSimple,
   PhCopy,
 } from '@phosphor-icons/vue';
+import { useAndroidBack, BACK_PRIORITY } from '@/composables/ui/useAndroidBack';
 
 const { t } = useI18n();
 
@@ -80,6 +81,18 @@ onUnmounted(() => {
 function close() {
   emit('close');
 }
+
+// Back press on a phone reverses the most recent thing: a zoomed-in image goes
+// back to fit before the viewer itself closes.
+useAndroidBack(() => {
+  if (scale.value > 1) {
+    scale.value = 1;
+    position.value = { x: 0, y: 0 };
+    return true;
+  }
+  close();
+  return true;
+}, BACK_PRIORITY.viewer);
 
 function zoomIn() {
   if (scale.value < MAX_SCALE) {
@@ -295,84 +308,93 @@ const imageStyle = computed<CSSProperties>(() => ({
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 flex flex-col bg-black/90" data-image-viewer="true">
-    <!-- Close button -->
-    <button class="close-btn" @click="close">
-      <PhX :size="20" />
-    </button>
+  <!-- Teleported to the body: the article pane is a transformed, z-30 stacking
+       context, so a `fixed inset-0` viewer nested inside it would be clipped to
+       the pane and drawn under the phone's bottom bar. On the body it covers the
+       viewport and the bar, which is what a full-screen viewer should do. -->
+  <Teleport to="body">
+    <div
+      class="fixed inset-0 z-50 flex flex-col bg-black/95 phone-safe-inset"
+      data-image-viewer="true"
+    >
+      <!-- Close button -->
+      <button class="close-btn" @click="close">
+        <PhX :size="20" />
+      </button>
 
-    <!-- Image counter (when multiple images) -->
-    <div v-if="hasMultipleImages" class="image-counter">
-      {{ currentImageNumber }} / {{ totalImages }}
-    </div>
+      <!-- Image counter (when multiple images) -->
+      <div v-if="hasMultipleImages" class="image-counter">
+        {{ currentImageNumber }} / {{ totalImages }}
+      </div>
 
-    <!-- Navigation buttons (when multiple images) -->
-    <template v-if="hasMultipleImages">
-      <button class="nav-btn nav-btn-prev" @click.stop="previousImage">‹</button>
-      <button class="nav-btn nav-btn-next" @click.stop="nextImage">›</button>
-    </template>
+      <!-- Navigation buttons (when multiple images) -->
+      <template v-if="hasMultipleImages">
+        <button class="nav-btn nav-btn-prev" @click.stop="previousImage">‹</button>
+        <button class="nav-btn nav-btn-next" @click.stop="nextImage">›</button>
+      </template>
 
-    <!-- Controls -->
-    <div class="controls-container" @click.stop>
-      <button
-        class="control-btn"
-        :disabled="scale <= MIN_SCALE"
-        :title="t('common.imageViewer.zoomOut')"
-        @click="zoomOut"
-      >
-        <PhMagnifyingGlassMinus :size="20" />
-      </button>
-      <button
-        class="control-btn scale-display"
-        :title="t('common.imageViewer.resetZoom')"
-        @click="resetView"
-      >
-        {{ Math.round(scale * 100) }}%
-      </button>
-      <button
-        class="control-btn"
-        :disabled="scale >= MAX_SCALE"
-        :title="t('common.imageViewer.zoomIn')"
-        @click="zoomIn"
-      >
-        <PhMagnifyingGlassPlus :size="20" />
-      </button>
-      <button class="control-btn" :title="t('common.contextMenu.copyImage')" @click="copyImage">
-        <PhCopy :size="20" />
-      </button>
-      <button
-        class="control-btn"
-        :title="t('common.contextMenu.downloadImage')"
-        @click="downloadImage"
-      >
-        <PhDownloadSimple :size="20" />
-      </button>
-    </div>
+      <!-- Controls -->
+      <div class="controls-container" @click.stop>
+        <button
+          class="control-btn"
+          :disabled="scale <= MIN_SCALE"
+          :title="t('common.imageViewer.zoomOut')"
+          @click="zoomOut"
+        >
+          <PhMagnifyingGlassMinus :size="20" />
+        </button>
+        <button
+          class="control-btn scale-display"
+          :title="t('common.imageViewer.resetZoom')"
+          @click="resetView"
+        >
+          {{ Math.round(scale * 100) }}%
+        </button>
+        <button
+          class="control-btn"
+          :disabled="scale >= MAX_SCALE"
+          :title="t('common.imageViewer.zoomIn')"
+          @click="zoomIn"
+        >
+          <PhMagnifyingGlassPlus :size="20" />
+        </button>
+        <button class="control-btn" :title="t('common.contextMenu.copyImage')" @click="copyImage">
+          <PhCopy :size="20" />
+        </button>
+        <button
+          class="control-btn"
+          :title="t('common.contextMenu.downloadImage')"
+          @click="downloadImage"
+        >
+          <PhDownloadSimple :size="20" />
+        </button>
+      </div>
 
-    <!-- Image Container -->
-    <div class="flex-1 flex items-center justify-center min-h-0 relative" @click="close">
-      <div
-        class="relative w-full h-full flex items-center justify-center overflow-hidden image-container"
-        :class="{ 'cursor-grab': !isDragging, 'cursor-grabbing': isDragging }"
-        @click.stop
-        @wheel="handleWheel"
-        @mousedown="startDrag"
-        @mousemove="onDrag"
-        @mouseup="stopDrag"
-        @mouseleave="stopDrag"
-      >
-        <img
-          ref="imageRef"
-          :src="currentSrc"
-          :alt="alt"
-          :style="imageStyle"
-          class="max-w-full max-h-full object-contain select-none"
-          :class="[isDragging ? '' : 'transition-transform duration-150']"
-          @dragstart.prevent
-        />
+      <!-- Image Container -->
+      <div class="flex-1 flex items-center justify-center min-h-0 relative" @click="close">
+        <div
+          class="relative w-full h-full flex items-center justify-center overflow-hidden image-container"
+          :class="{ 'cursor-grab': !isDragging, 'cursor-grabbing': isDragging }"
+          @click.stop
+          @wheel="handleWheel"
+          @mousedown="startDrag"
+          @mousemove="onDrag"
+          @mouseup="stopDrag"
+          @mouseleave="stopDrag"
+        >
+          <img
+            ref="imageRef"
+            :src="currentSrc"
+            :alt="alt"
+            :style="imageStyle"
+            class="max-w-full max-h-full object-contain select-none"
+            :class="[isDragging ? '' : 'transition-transform duration-150']"
+            @dragstart.prevent
+          />
+        </div>
       </div>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -460,4 +482,30 @@ const imageStyle = computed<CSSProperties>(() => ({
 .image-container.cursor-grabbing {
   cursor: grabbing;
 }
+/* `top-4` measures from the padding box, so the root's `phone-safe-inset`
+   padding does not move these controls — they landed under the status bar and
+   the gesture bar in the native shell. Offset by the insets directly; they are
+   0 in a desktop window, which leaves `1rem` where it was. Kept at the end of
+   the block so it wins over the `@apply` rules above. */
+.close-btn,
+.image-counter {
+  top: calc(env(safe-area-inset-top, 0px) + 1rem);
+}
+
+.controls-container {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 1rem);
+}
+
+/* 32px and 36px controls are mouse-sized; a phone viewer is all thumb. */
+@media (max-width: 767px) {
+  .close-btn {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  .control-btn {
+    min-height: 2.5rem;
+  }
+}
 </style>
+

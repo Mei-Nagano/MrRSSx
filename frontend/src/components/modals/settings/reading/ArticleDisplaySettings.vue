@@ -15,6 +15,7 @@ import {
 } from '@phosphor-icons/vue';
 import { SettingGroup, SettingWithToggle, SettingWithSelect } from '@/components/settings';
 import '@/components/settings/styles.css';
+import { usePhoneLayout } from '@/composables/ui/usePhoneLayout';
 import type { SettingsData } from '@/types/settings';
 import {
   articleTableColumns,
@@ -35,6 +36,23 @@ const datePreview = computed(() =>
 const visibleTableColumns = computed(() =>
   parseArticleTableColumns(props.settings.article_table_columns)
 );
+
+// The table is a desktop layout — the list falls back to normal rows below the
+// phone breakpoint, so offering it there would be a choice that does nothing.
+// It stays visible while it is the current value, so a phone that picked it up
+// from a synced desktop can still switch away from it.
+const isPhoneLayout = usePhoneLayout();
+const layoutModeOptions = computed(() => {
+  const options = [
+    { value: 'normal', label: t('setting.typography.layoutModeNormal') },
+    { value: 'compact', label: t('setting.typography.layoutModeCompact') },
+    { value: 'card', label: t('setting.typography.layoutModeCard') },
+    { value: 'table', label: t('setting.typography.layoutModeTable') },
+  ];
+  return options.filter(
+    (option) => option.value !== 'table' || !isPhoneLayout.value || props.settings.layout_mode === 'table'
+  );
+});
 function toggleTableColumn(column: ArticleTableColumn, enabled: boolean): void {
   const columns = new Set(visibleTableColumns.value);
   if (enabled) columns.add(column);
@@ -137,16 +155,11 @@ function updateSetting(key: keyof SettingsData, value: string | number | boolean
       :title="t('setting.typography.layoutMode')"
       :description="t('setting.typography.layoutModeDesc')"
       :model-value="settings.layout_mode"
-      :options="[
-        { value: 'normal', label: t('setting.typography.layoutModeNormal') },
-        { value: 'compact', label: t('setting.typography.layoutModeCompact') },
-        { value: 'card', label: t('setting.typography.layoutModeCard') },
-        { value: 'table', label: t('setting.typography.layoutModeTable') },
-      ]"
+      :options="layoutModeOptions"
       width="md"
       @update:model-value="updateSetting('layout_mode', $event)"
     />
-    <template v-if="settings.layout_mode === 'table'">
+    <template v-if="settings.layout_mode === 'table' && !isPhoneLayout">
       <SettingWithToggle
         v-for="column in articleTableColumns.filter((item) => item !== 'title')"
         :key="column"

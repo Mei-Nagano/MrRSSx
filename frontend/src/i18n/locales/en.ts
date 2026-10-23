@@ -167,6 +167,7 @@ const en: TranslationMessages = {
       actionFavorite: 'Add to Favorites',
       actionUnfavorite: 'Remove from Favorites',
       addToFavorite: 'Add to Favorites',
+      empty: 'No images or videos in this view yet',
       filter: {
         all: 'All',
         images: 'Images',
@@ -177,6 +178,10 @@ const en: TranslationMessages = {
     },
     list: {
       loadingArticles: 'Loading articles…',
+      pullToRefresh: 'Pull to refresh',
+      releaseToRefresh: 'Release to refresh',
+      refreshing: 'Refreshing…',
+      refreshFailed: '{count} feed could not be refreshed | {count} feeds could not be refreshed',
       more: 'More',
       options: 'List options',
       appliesImmediately: 'Applies immediately',
@@ -233,6 +238,7 @@ const en: TranslationMessages = {
     },
     toolbar: {
       customize: 'Customize Toolbar',
+      moreActions: 'More actions',
       customizeHint:
         'Choose visible buttons and their order. Translation and export buttons appear when their features are enabled.',
       reset: 'Restore Defaults',
@@ -442,16 +448,18 @@ const en: TranslationMessages = {
     },
     time: {
       days: 'days',
-      daysAgo: '{count} days ago',
-      hoursAgo: '{count} hours ago',
+      // Pipe-separated plural forms, chosen by the `count` argument vue-i18n
+      // already receives. Without them English read "1 days ago".
+      daysAgo: 'one day ago | {count} days ago',
+      hoursAgo: 'one hour ago | {count} hours ago',
       justNow: 'Just now',
       minutes: 'minutes',
-      minutesAgo: '{count} minutes ago',
+      minutesAgo: 'one minute ago | {count} minutes ago',
       minutesShort: 'min',
       ms: 'ms',
       never: 'Never',
       seconds: 'seconds',
-      secondsAgo: '{count} seconds ago',
+      secondsAgo: 'one second ago | {count} seconds ago',
     },
     text: {
       andNMore: '+{count} more',
@@ -1248,13 +1256,13 @@ const en: TranslationMessages = {
       apiPasswordDesc:
         'Google Reader API password configured on the server (different from your normal login password)',
       apiPasswordPlaceholder: 'Enter your Google Reader password',
-      daysAgo: '{count} days ago',
+      daysAgo: 'one day ago | {count} days ago',
       disableConfirm:
         'Disabling sync will delete locally synced feeds and articles. This action cannot be undone. Are you sure you want to continue?',
       enabled: 'FreshRSS / Miniflux Integration',
       enabledDesc: 'Sync feeds and articles using a Google Reader-compatible server',
-      hoursAgo: '{count} hours ago',
-      minsAgo: '{count} minutes ago',
+      hoursAgo: 'one hour ago | {count} hours ago',
+      minsAgo: 'one minute ago | {count} minutes ago',
       syncFailed: 'Sync failed',
       feedLocked: 'Synced feed cannot be edited, moved, or modified',
       justNow: 'Just now',
@@ -1425,10 +1433,11 @@ const en: TranslationMessages = {
       waiting: 'Waiting for Folo...',
       signInSuccess: 'Signed in to Folo',
       signInFailed: 'Folo sign-in failed',
+      sessionExpired: 'Folo session expired. Sign in again.',
       signInHint: 'Sign in to import subscriptions',
       signOut: 'Sign out',
       signOutSuccess: 'Signed out. Imported subscriptions stay local.',
-      import: 'Import subscriptions',
+      import: 'Import',
       importing: 'Importing...',
       importTitle: 'Import subscriptions',
       importDesc:
@@ -1449,7 +1458,7 @@ const en: TranslationMessages = {
       accountRequired: 'Sign in to Folo first',
       lastImport: 'Last import',
       never: 'Never',
-      manualTitle: 'Sign in with a token',
+      manualTitle: 'Paste a token',
       manualDesc:
         'When MrRSS runs on a server that cannot open a browser here, paste the token from folo://auth?token=...',
       manualUse: 'Use token',
@@ -1565,6 +1574,7 @@ const en: TranslationMessages = {
       downloadFailedHelp:
         'The automatic download did not finish. Check your network or proxy and retry, or download the update manually.',
       downloadManually: 'Open the release page',
+      noInstaller: 'No installer is available for this platform. Download it manually:',
       downloadNetworkError:
         'Could not connect to GitHub. Check your network or proxy settings and try again.',
       downloadProxyError: 'The proxy settings are invalid. Check Network settings and try again.',
@@ -1632,6 +1642,10 @@ const en: TranslationMessages = {
     },
     feedList: {
       articles: 'Articles',
+      emptyImageMode: 'Only feeds with image mode on are listed here',
+      emptyNoFeeds: 'No feeds yet — add one to get started',
+      emptySearch: 'No feeds match your search',
+      emptyView: 'No feeds have anything in this view',
       feeds: 'Feeds',
       pin: 'Pin',
       recentArticles: 'Recent Articles',

@@ -100,7 +100,7 @@ describe('article list bulk read and navigation', () => {
             intersectionRatio: visible ? 1 : 0,
             rootBounds: { top: 0 },
             boundingClientRect: { bottom },
-          } as IntersectionObserverEntry,
+          } as unknown as IntersectionObserverEntry,
         ],
         {} as IntersectionObserver
       );

@@ -137,6 +137,8 @@ function handleNavClick(item: NavItem) {
           ]"
           style="width: 44px; height: 44px"
           :title="item.shortcut ? withShortcut(item.label, item.shortcut) : item.label"
+          :aria-label="item.label"
+          :aria-current="store.currentFilter === item.filterType ? 'page' : undefined"
           @click="handleNavClick(item)"
         >
           <!-- Icon -->
@@ -162,7 +164,7 @@ function handleNavClick(item: NavItem) {
     </div>
 
     <!-- Bottom Actions -->
-    <div class="flex flex-col items-center gap-1 mt-auto w-full">
+    <div class="action-items-container flex flex-col items-center gap-1 mt-auto w-full">
       <button
         class="relative flex items-center justify-center text-text-secondary flex-shrink-0 transition-all hover:text-accent"
         style="width: 44px; height: 44px"
@@ -280,16 +282,53 @@ function handleNavClick(item: NavItem) {
   }
 }
 
-/* Mobile devices */
+/* Mobile devices: the rail becomes a bottom navigation bar. A permanent 44px
+   column costs more than a tenth of a 390px-wide reading area, while a bar at
+   the bottom sits where a thumb already is.
+
+   The bar carries the five views and nothing else: it answers "which view am I
+   on", not "what can I do". Add-feed and settings are actions and live in the
+   feed drawer's footer; the drawer itself opens from the hamburger that both
+   the list and the gallery headers lead with on phones. */
 @media (max-width: 767px) {
   .smart-activity-bar {
-    width: 44px;
-    min-width: 44px;
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    min-width: 0;
+    height: calc(56px + env(safe-area-inset-bottom, 0px));
+    flex-direction: row;
+    align-items: stretch;
+    padding: 0 0 env(safe-area-inset-bottom, 0px);
+    border-right-width: 0;
+    border-top: 1px solid var(--color-border);
+    /* Above the article pane (z-30), which slides over the list on phones. */
+    z-index: 40;
   }
 
+  .nav-items-container {
+    flex: 1 1 auto;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-around;
+    gap: 0;
+    height: 56px;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .action-items-container {
+    display: none;
+  }
+
+  /* 44px is the smallest comfortable touch target; the rail's compact 36px
+     sizing is for a mouse and is too small for a thumb. */
   button[style*='width: 44px'] {
-    width: 36px !important;
-    height: 36px !important;
+    width: 44px !important;
+    height: 44px !important;
   }
 }
 </style>

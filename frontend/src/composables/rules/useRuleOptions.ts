@@ -16,9 +16,10 @@ interface FieldOption {
   labelKey: string;
   multiSelect: boolean;
   booleanField?: boolean;
+  numberField?: boolean;
 }
 
-interface ActionOption {
+export interface ActionOption {
   value: string;
   labelKey: string;
 }

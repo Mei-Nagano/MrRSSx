@@ -90,10 +90,10 @@ export function getBilibiliEmbedUrl(url: string): string {
  * Get Bilibili thumbnail URL from a BVID
  * Note: Bilibili thumbnails are extracted from RSS content, not from BVID alone
  * This function is a placeholder for future implementation
- * @param bvid - The Bilibili video BVID
+ * @param _bvid - The Bilibili video BVID
  * @returns Empty string (thumbnails should be extracted from RSS content)
  */
-export function getBilibiliThumbnailUrl(bvid: string): string {
+export function getBilibiliThumbnailUrl(_bvid: string): string {
   // Bilibili doesn't provide a simple thumbnail URL pattern like YouTube
   // Thumbnails should be extracted from the RSS feed's image content
   return '';

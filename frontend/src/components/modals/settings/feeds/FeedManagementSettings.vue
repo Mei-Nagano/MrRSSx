@@ -304,7 +304,7 @@ onUnmounted(() =>
           </span>
         </label>
 
-        <div class="flex min-w-0 items-center gap-2">
+        <div class="flex min-w-0 flex-wrap items-center gap-2">
           <BaseSelect
             :model-value="sortField"
             :options="sortOptions"
@@ -316,7 +316,7 @@ onUnmounted(() =>
           />
           <button
             type="button"
-            class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text-primary disabled:cursor-default disabled:opacity-40"
+            class="feed-sort-direction flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text-primary disabled:cursor-default disabled:opacity-40"
             :class="{ 'rotate-180': sortDirection === 'desc' }"
             :disabled="sortField === 'original'"
             :title="
@@ -329,7 +329,9 @@ onUnmounted(() =>
           >
             <PhSortAscending :size="18" />
           </button>
-          <div class="relative min-w-0 flex-1 sm:w-44 sm:flex-none">
+          <!-- Phones put the field on its own row: sharing the line with the
+               sort controls clipped the placeholder to "Search fee". -->
+          <div class="relative min-w-0 flex-1 basis-full sm:w-44 sm:flex-none sm:basis-auto">
             <PhMagnifyingGlass
               :size="15"
               class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary"
@@ -338,13 +340,13 @@ onUnmounted(() =>
               v-model="searchQuery"
               type="search"
               :placeholder="t('common.search.searchFeeds')"
-              class="h-8 w-full rounded-md border border-border bg-bg-primary pl-8 pr-8 text-sm text-text-primary outline-none transition-colors placeholder:text-text-tertiary focus:border-accent focus:ring-1 focus:ring-accent"
+              class="feed-search h-8 w-full rounded-md border border-border bg-bg-primary pl-8 pr-8 text-sm text-text-primary outline-none transition-colors placeholder:text-text-tertiary focus:border-accent focus:ring-1 focus:ring-accent"
               data-testid="feed-search"
             />
             <button
               v-if="searchQuery"
               type="button"
-              class="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center rounded p-0.5 text-text-tertiary hover:bg-bg-tertiary hover:text-text-primary"
+              class="feed-search-clear absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center rounded p-0.5 text-text-tertiary hover:bg-bg-tertiary hover:text-text-primary"
               :title="t('common.action.clear')"
               @click="searchQuery = ''"
             >
@@ -373,11 +375,11 @@ onUnmounted(() =>
 
       <div class="max-h-[32rem] overflow-auto scroll-smooth" data-testid="feed-list">
         <template v-if="isInitialLoading">
-          <div class="min-w-[740px]">
+          <div class="feed-list-grid min-w-[740px]">
             <div
               v-for="index in 6"
               :key="index"
-              class="grid min-h-16 grid-cols-[16px_32px_minmax(220px,1fr)_100px_96px_64px_48px_72px] items-center gap-2 border-b border-border/70 px-3 py-2 last:border-0"
+              class="feed-row grid min-h-16 grid-cols-[16px_32px_minmax(220px,1fr)_100px_96px_64px_48px_72px] items-center gap-2 border-b border-border/70 px-3 py-2 last:border-0"
               data-testid="feed-list-loading"
             >
               <div class="h-4 w-4 animate-pulse rounded bg-bg-tertiary" />
@@ -422,9 +424,9 @@ onUnmounted(() =>
         </div>
 
         <template v-else-if="sortedFeeds.length > 0">
-          <div class="min-w-[740px]" data-testid="feed-list-grid">
+          <div class="feed-list-grid min-w-[740px]" data-testid="feed-list-grid">
             <div
-              class="sticky top-0 z-10 grid grid-cols-[16px_32px_minmax(220px,1fr)_100px_96px_64px_48px_72px] items-center gap-2 border-b border-border bg-bg-secondary px-3 py-2 text-xs font-medium text-text-secondary"
+              class="feed-row sticky top-0 z-10 grid grid-cols-[16px_32px_minmax(220px,1fr)_100px_96px_64px_48px_72px] items-center gap-2 border-b border-border bg-bg-secondary px-3 py-2 text-xs font-medium text-text-secondary"
               data-testid="feed-column-headers"
             >
               <span aria-hidden="true" />
@@ -450,7 +452,7 @@ onUnmounted(() =>
               :key="feed.id"
               :data-feed-id="feed.id"
               :class="[
-                'group grid min-h-16 grid-cols-[16px_32px_minmax(220px,1fr)_100px_96px_64px_48px_72px] items-center gap-2 border-b border-border/70 px-3 py-2 transition-colors last:border-0',
+                'feed-row group grid min-h-16 grid-cols-[16px_32px_minmax(220px,1fr)_100px_96px_64px_48px_72px] items-center gap-2 border-b border-border/70 px-3 py-2 transition-colors last:border-0',
                 feed.is_freshrss_source
                   ? 'cursor-default bg-info/5'
                   : 'cursor-pointer bg-bg-primary hover:bg-bg-secondary',
@@ -642,3 +644,57 @@ onUnmounted(() =>
     />
   </Teleport>
 </template>
+
+<style scoped>
+/* The list is a 740px table — checkbox, icon, name, category, last article,
+   frequency, status, actions. On a phone that left the edit and delete buttons
+   three hundred pixels to the right, behind a sideways scroll; a fade on the
+   right edge hinted at it, but nobody swipes a settings list to find out. Below
+   the breakpoint the row keeps what a thumb needs — select, icon, name, actions
+   — and drops the four columns that are one tap away in the editor anyway. */
+@media (max-width: 767px) {
+  .feed-list-grid {
+    min-width: 0;
+  }
+
+  .feed-row {
+    grid-template-columns: 20px 32px minmax(0, 1fr) auto;
+  }
+
+  .feed-row > input[type='checkbox'] {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  .feed-row > :nth-child(4),
+  .feed-row > :nth-child(5),
+  .feed-row > :nth-child(6),
+  .feed-row > :nth-child(7) {
+    display: none;
+  }
+
+  .feed-row [data-testid='feed-actions'] button {
+    min-width: 2.5rem;
+    min-height: 2.5rem;
+  }
+
+  .feed-sort-direction {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  .feed-search {
+    height: 2.5rem;
+    padding-right: 2.75rem;
+  }
+
+  .feed-search-clear {
+    right: 0;
+    width: 2.5rem;
+    height: 2.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+</style>

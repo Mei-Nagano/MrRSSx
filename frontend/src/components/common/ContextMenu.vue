@@ -9,8 +9,37 @@ import {
   type Ref,
   type Component,
 } from 'vue';
-import * as PhosphorIcons from '@phosphor-icons/vue';
+import {
+  PhArrowBendLeftDown,
+  PhArrowBendRightUp,
+  PhArrowSquareOut,
+  PhArticle,
+  PhArrowsClockwise,
+  PhBinoculars,
+  PhCheckCircle,
+  PhCircle,
+  PhClockCountdown,
+  PhCopy,
+  PhDownloadSimple,
+  PhEnvelope,
+  PhEnvelopeOpen,
+  PhEye,
+  PhEyeSlash,
+  PhFolderMinus,
+  PhGlobe,
+  PhLinkSimple,
+  PhMagnifyingGlass,
+  PhMagnifyingGlassPlus,
+  PhPencil,
+  PhPushPin,
+  PhRssSimple,
+  PhStar,
+  PhTextT,
+  PhTrash,
+} from '@phosphor-icons/vue';
 import type { ContextMenuItem } from '@/types/context-menu';
+import { useAndroidBack, BACK_PRIORITY } from '@/composables/ui/useAndroidBack';
+import { bottomBarHeight } from '@/composables/ui/usePhoneLayout';
 
 interface Props {
   items: ContextMenuItem[];
@@ -37,7 +66,49 @@ function handleKeyDown(event: KeyboardEvent) {
   }
 }
 
-// Map old icon names to new component names
+// The menu is mounted only while it is open, so a mount-scoped handler is
+// enough. Without it a back press on a phone would leave the app from under an
+// open menu instead of dismissing the menu.
+useAndroidBack(() => {
+  emit('close');
+  return true;
+}, BACK_PRIORITY.popover);
+
+// Only the icons the menus actually ask for. Importing the package namespace
+// (`import * as PhosphorIcons`) disabled tree-shaking: every icon in the
+// catalogue shipped in the bundle, on every launch. The cost of the registry is
+// that a new menu icon has to be added here; a miss renders no icon and warns
+// in development.
+const iconComponents: Record<string, Component> = {
+  PhArrowBendLeftDown,
+  PhArrowBendRightUp,
+  PhArrowSquareOut,
+  PhArticle,
+  PhArrowsClockwise,
+  PhBinoculars,
+  PhCheckCircle,
+  PhCircle,
+  PhClockCountdown,
+  PhCopy,
+  PhDownloadSimple,
+  PhEnvelope,
+  PhEnvelopeOpen,
+  PhEye,
+  PhEyeSlash,
+  PhFolderMinus,
+  PhGlobe,
+  PhLinkSimple,
+  PhMagnifyingGlass,
+  PhMagnifyingGlassPlus,
+  PhPencil,
+  PhPushPin,
+  PhRssSimple,
+  PhStar,
+  PhTextT,
+  PhTrash,
+};
+
+// Map old icon names to registry keys
 const iconMap: Record<string, string> = {
   'ph-link': 'PhLinkSimple',
   'ph-link-simple': 'PhLinkSimple',
@@ -68,7 +139,11 @@ const iconMap: Record<string, string> = {
 function getIconComponent(iconName?: string): Component | null {
   if (!iconName) return null;
   const componentName = iconMap[iconName] || iconName;
-  return (PhosphorIcons as Record<string, Component>)[componentName] || null;
+  const component = iconComponents[componentName];
+  if (!component && import.meta.env.DEV) {
+    console.warn(`ContextMenu: no icon registered for "${iconName}"`);
+  }
+  return component ?? null;
 }
 
 function handleClickOutside(event: MouseEvent) {
@@ -85,22 +160,29 @@ function adjustMenuPosition() {
       return;
     }
 
-    const menuRect = menuRef.value.getBoundingClientRect();
+    // `offset*` rather than `getBoundingClientRect()`: the menu opens with a
+    // `scale(0.95)` fade-in, and a rect measured during that animation is 5%
+    // short — it left the last row below the clamp, under the phone's bottom
+    // bar. Offset sizes are the layout box and ignore the transform.
+    const menuWidth = menuRef.value.offsetWidth;
+    const menuHeight = menuRef.value.offsetHeight;
     const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
+    // The phone's bottom bar covers the last slice of the viewport; a menu
+    // clamped to `innerHeight` would tuck its bottom rows underneath it.
+    const viewportHeight = window.innerHeight - bottomBarHeight();
 
     let newTop = props.y;
     let newLeft = props.x;
 
     // Check if menu goes beyond right edge
-    if (props.x + menuRect.width > viewportWidth - 10) {
-      newLeft = props.x - menuRect.width;
+    if (props.x + menuWidth > viewportWidth - 10) {
+      newLeft = props.x - menuWidth;
       if (newLeft < 10) newLeft = 10;
     }
 
     // Check if menu goes beyond bottom edge
-    if (props.y + menuRect.height > viewportHeight - 10) {
-      newTop = props.y - menuRect.height;
+    if (props.y + menuHeight > viewportHeight - 10) {
+      newTop = props.y - menuHeight;
       if (newTop < 10) newTop = 10;
     }
 
@@ -160,7 +242,7 @@ const menuStyle = computed(() => ({
       <div v-if="item.separator" class="h-px bg-border my-1"></div>
       <div
         v-else
-        class="px-4 py-2 flex items-center gap-3 cursor-pointer hover:bg-bg-tertiary text-sm transition-colors"
+        class="px-4 py-2 min-h-11 flex items-center gap-3 cursor-pointer hover:bg-bg-tertiary text-sm transition-colors"
         :class="[
           item.disabled ? 'opacity-50 cursor-not-allowed' : '',
           item.danger

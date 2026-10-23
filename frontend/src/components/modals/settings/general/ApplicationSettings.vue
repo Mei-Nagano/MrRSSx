@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { resolveLocale } from '@/i18n/locale';
 import {
   PhPalette,
   PhMoon,
@@ -23,8 +24,12 @@ import {
 } from '@/components/settings';
 import FontFamilySelect from '@/components/settings/FontFamilySelect.vue';
 import type { SettingsData } from '@/types/settings';
+import { isDesktopShell } from '@/utils/platform';
 
 const { t } = useI18n();
+
+// Startup registration and tray behaviour are desktop concepts.
+const showDesktopOptions = isDesktopShell();
 
 interface Props {
   settings: SettingsData;
@@ -56,6 +61,7 @@ function updateUiFontSize(value: number) {
 <template>
   <SettingGroup :icon="PhPalette" :title="t('setting.general.application')">
     <SettingWithToggle
+      v-if="showDesktopOptions"
       :icon="PhPower"
       :title="t('setting.general.startupOnBoot')"
       :description="t('setting.general.startupOnBootDesc')"
@@ -63,7 +69,7 @@ function updateUiFontSize(value: number) {
       @update:model-value="updateSetting('startup_on_boot', $event)"
     />
 
-    <NestedSettingsContainer v-if="settings.startup_on_boot">
+    <NestedSettingsContainer v-if="showDesktopOptions && settings.startup_on_boot">
       <SubSettingItem
         :icon="PhArrowLineDown"
         :title="t('setting.general.startupMinimized')"
@@ -77,6 +83,7 @@ function updateUiFontSize(value: number) {
     </NestedSettingsContainer>
 
     <SettingWithToggle
+      v-if="showDesktopOptions"
       :icon="PhArchiveTray"
       :title="t('setting.general.closeToTray')"
       :description="t('setting.general.closeToTrayDesc')"
@@ -102,7 +109,7 @@ function updateUiFontSize(value: number) {
       :icon="PhTranslate"
       :title="t('setting.general.language')"
       :description="t('setting.general.languageDesc')"
-      :model-value="settings.language"
+      :model-value="resolveLocale(settings.language)"
       :options="[
         { value: 'en-US', label: t('common.language.english') },
         { value: 'zh-CN', label: t('common.language.chinese') },

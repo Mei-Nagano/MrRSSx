@@ -29,8 +29,6 @@ export function useWindowState() {
         console.warn('Failed to load window state');
         return;
       }
-
-      const data = await response.json();
     } catch (error) {
       // Log fetch errors during state restoration for debugging
       console.debug('Failed to restore window state:', error);

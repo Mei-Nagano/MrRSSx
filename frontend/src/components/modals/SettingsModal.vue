@@ -3,7 +3,16 @@ import { useAppStore } from '@/stores/app';
 import { useAdvertisementsStore } from '@/stores/advertisements';
 import PartnerAdvertisement from '@/components/common/PartnerAdvertisement.vue';
 import { useI18n } from 'vue-i18n';
-import { computed, nextTick, ref, onMounted, watch, type Component, type Ref } from 'vue';
+import {
+  computed,
+  nextTick,
+  ref,
+  onMounted,
+  onBeforeUnmount,
+  watch,
+  type Component,
+  type Ref,
+} from 'vue';
 import GeneralTab from './settings/general/GeneralTab.vue';
 import ReadingDisplayTab from './settings/reading/ReadingDisplayTab.vue';
 import FeedsTab from './settings/feeds/FeedsTab.vue';
@@ -38,6 +47,7 @@ import { useSettings } from '@/composables/core/useSettings';
 import { useAppUpdates } from '@/composables/core/useAppUpdates';
 import { useFeedManagement } from '@/composables/feed/useFeedManagement';
 import { useModalClose, LARGE_MODAL_Z_INDEX } from '@/composables/ui/useModalClose';
+import { useCoarsePointer } from '@/composables/ui/useCoarsePointer';
 import { settingsSearchKeys } from '@/config/settingsSearch';
 
 const store = useAppStore();
@@ -158,6 +168,18 @@ const settingsTabs: Array<{
   },
 ];
 
+// Shortcuts are a keyboard feature: a touch device has no keyboard to bind and
+// no way to press one, so the tab is dropped from the strip and from search
+// results rather than shown as a page of keys nobody can use.
+const isTouchDevice = useCoarsePointer();
+const visibleSettingsTabs = computed(() =>
+  isTouchDevice.value ? settingsTabs.filter((tab) => tab.id !== 'shortcuts') : settingsTabs
+);
+if (isTouchDevice.value && activeTab.value === 'shortcuts') activeTab.value = 'general';
+watch(isTouchDevice, (touch) => {
+  if (touch && activeTab.value === 'shortcuts') activeTab.value = 'general';
+});
+
 interface SettingsSearchResult {
   id: string;
   tab: TabName;
@@ -172,7 +194,7 @@ const settingsSearchResults = computed<SettingsSearchResult[]>(() => {
   const results: Array<SettingsSearchResult & { rank: number }> = [];
   const seen = new Set<string>();
 
-  for (const tab of settingsTabs) {
+  for (const tab of visibleSettingsTabs.value) {
     const tabLabel = t(tab.labelKey);
     const searchableText = [tabLabel, ...settingsSearchKeys[tab.id].map((key) => t(key))];
 
@@ -199,11 +221,36 @@ const settingsSearchResults = computed<SettingsSearchResult[]>(() => {
     .map(({ rank: _rank, ...result }) => result);
 });
 
+// The tab strip scrolls sideways below `sm`, and a permanent fade marks content
+// past the edge. When the strip is already at that edge the fade is a lie — the
+// last tab ("About") looked disabled. Track the real scroll position instead.
+const tabStripRef = ref<HTMLElement | null>(null);
+const tabStripCanScrollLeft = ref(false);
+const tabStripCanScrollRight = ref(false);
+
+function updateTabStripFade() {
+  const strip = tabStripRef.value;
+  if (!strip) return;
+  const maxScroll = strip.scrollWidth - strip.clientWidth;
+  tabStripCanScrollLeft.value = strip.scrollLeft > 1;
+  tabStripCanScrollRight.value = maxScroll > 1 && strip.scrollLeft < maxScroll - 1;
+}
+
+function handleTabStripResize() {
+  updateTabStripFade();
+}
+
 async function selectSettingsTab(tab: TabName) {
   activeTab.value = tab;
   clearSettingsSearch();
   await nextTick();
   settingsContentRef.value?.scrollTo({ top: 0, behavior: 'instant' });
+  // The newly active tab may be the one scrolled out of view (search jumps to
+  // any tab); bring it in before re-measuring the fade.
+  tabStripRef.value
+    ?.querySelector('.sidebar-tab-btn.active')
+    ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  updateTabStripFade();
 }
 
 async function selectSettingsSearchResult(result: SettingsSearchResult) {
@@ -226,8 +273,9 @@ async function selectSettingsSearchResult(result: SettingsSearchResult) {
     : candidateList.filter((element) =>
         (element.textContent?.toLocaleLowerCase() || '').includes(query)
       );
-  const match = matches
-    .sort((left, right) => (left.textContent?.length || 0) - (right.textContent?.length || 0))[0];
+  const match = matches.sort(
+    (left, right) => (left.textContent?.length || 0) - (right.textContent?.length || 0)
+  )[0];
   if (!match) return;
 
   match.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -256,8 +304,7 @@ function handleSettingsSearchKeydown(event: KeyboardEvent) {
   } else if (event.key === 'ArrowUp') {
     event.preventDefault();
     settingsSearchOpen.value = true;
-    highlightedSearchIndex.value =
-      (highlightedSearchIndex.value - 1 + resultCount) % resultCount;
+    highlightedSearchIndex.value = (highlightedSearchIndex.value - 1 + resultCount) % resultCount;
   } else if (event.key === 'Enter') {
     event.preventDefault();
     const result = settingsSearchResults.value[highlightedSearchIndex.value];
@@ -281,12 +328,18 @@ watch(settingsSearchQuery, (query) => {
 });
 
 onMounted(async () => {
+  updateTabStripFade();
+  window.addEventListener('resize', handleTabStripResize);
   try {
     const data = await fetchSettings();
     applySettings(data, (theme: string) => store.setTheme(theme as ThemePreference));
   } catch (e) {
     console.error('Error loading settings:', e);
   }
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleTabStripResize);
 });
 
 function handleDiscoverAll() {
@@ -296,26 +349,26 @@ function handleDiscoverAll() {
 
 <template>
   <div
-    class="fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+    class="settings-overlay fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm phone-safe-inset"
     :style="{ zIndex: modalZIndex }"
     data-modal-open="true"
     data-settings-modal="true"
   >
     <div
-      class="bg-bg-primary w-full max-w-5xl h-full sm:h-[800px] sm:max-h-[90vh] flex flex-col rounded-none sm:rounded-2xl shadow-2xl border border-border overflow-hidden animate-fade-in mx-2 sm:mx-4 my-2 sm:my-4"
+      class="settings-panel bg-bg-primary w-full max-w-5xl h-full sm:h-[800px] sm:max-h-[90vh] flex flex-col rounded-none sm:rounded-2xl shadow-2xl border border-border overflow-hidden animate-fade-in mx-2 sm:mx-4 my-2 sm:my-4"
     >
       <div
-        class="grid grid-cols-[minmax(0,1fr)_minmax(12rem,20rem)_minmax(0,1fr)] items-center gap-3 border-b border-border p-3 sm:p-5 shrink-0"
+        class="flex flex-wrap items-center gap-2 border-b border-border p-3 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(12rem,20rem)_minmax(0,1fr)] sm:gap-3 sm:p-5 shrink-0"
       >
         <h3
-          class="justify-self-start text-text-secondary sm:text-lg font-semibold m-0 flex items-center gap-2"
+          class="order-1 min-w-0 flex-1 justify-self-start text-text-secondary sm:text-lg font-semibold m-0 flex items-center gap-2"
         >
           <PhGear :size="20" :weight="'fill'" class="sm:w-6 sm:h-6" />
           {{ t('setting.tab.settingsTitle') }}
         </h3>
         <div
           ref="settingsSearchRef"
-          class="relative w-full justify-self-center"
+          class="relative order-3 w-full justify-self-center sm:order-2"
           @focusout="handleSettingsSearchFocusOut"
         >
           <PhMagnifyingGlass
@@ -325,7 +378,7 @@ function handleDiscoverAll() {
           <input
             v-model="settingsSearchQuery"
             type="text"
-            class="w-full rounded-lg border border-border bg-bg-secondary py-2 pl-9 pr-9 text-sm text-text-primary outline-none transition-colors focus:border-accent"
+            class="settings-search-input w-full rounded-lg border border-border bg-bg-secondary py-2 pl-9 pr-9 text-sm text-text-primary outline-none transition-colors focus:border-accent"
             :placeholder="t('setting.search.placeholder')"
             :aria-label="t('setting.search.placeholder')"
             :aria-expanded="settingsSearchOpen"
@@ -337,7 +390,7 @@ function handleDiscoverAll() {
           <button
             v-if="settingsSearchQuery"
             type="button"
-            class="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
+            class="settings-search-clear absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"
             :title="t('setting.search.clear')"
             @click="clearSettingsSearch"
           >
@@ -382,7 +435,7 @@ function handleDiscoverAll() {
         </div>
         <button
           type="button"
-          class="flex h-10 w-10 cursor-pointer items-center justify-center justify-self-end rounded-lg text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text-primary"
+          class="order-2 flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center justify-self-end rounded-lg text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text-primary sm:order-3"
           :aria-label="t('common.close')"
           :title="t('common.close')"
           @click="emit('close')"
@@ -391,17 +444,22 @@ function handleDiscoverAll() {
         </button>
       </div>
 
-      <div class="flex flex-1 min-h-0 overflow-hidden">
-        <!-- Sidebar Navigation -->
-        <div class="w-48 sm:w-56 border-r border-border bg-bg-secondary shrink-0 overflow-y-scroll">
-          <nav class="p-2 space-y-1">
+      <div class="flex flex-1 min-h-0 flex-col overflow-hidden sm:flex-row">
+        <!-- Sidebar Navigation: horizontal scroll strip on narrow screens, vertical list on wider ones -->
+        <div
+          ref="tabStripRef"
+          class="settings-tab-strip w-full shrink-0 overflow-x-auto overflow-y-hidden border-b border-border bg-bg-secondary sm:w-48 sm:overflow-x-hidden sm:overflow-y-auto sm:border-b-0 sm:border-r"
+          :class="{ 'fade-left': tabStripCanScrollLeft, 'fade-right': tabStripCanScrollRight }"
+          @scroll.passive="updateTabStripFade"
+        >
+          <nav class="flex gap-1 p-2 sm:block sm:space-y-1">
             <button
-              v-for="tab in settingsTabs"
+              v-for="tab in visibleSettingsTabs"
               :key="tab.id"
               :class="['sidebar-tab-btn', activeTab === tab.id ? 'active' : '']"
               @click="selectSettingsTab(tab.id)"
             >
-              <component :is="tab.icon" :size="22" />
+              <component :is="tab.icon" :size="22" class="shrink-0" />
               <span>{{ t(tab.labelKey) }}</span>
             </button>
           </nav>
@@ -410,7 +468,7 @@ function handleDiscoverAll() {
         <!-- Content Area -->
         <div
           ref="settingsContentRef"
-          class="settings-content flex-1 overflow-y-scroll p-3 sm:p-6 min-h-0 scroll-smooth overscroll-contain"
+          class="settings-content flex-1 min-w-0 overflow-y-scroll p-3 sm:p-6 min-h-0 scroll-smooth overscroll-contain"
           data-settings-content
         >
           <div v-if="advertisements.visibleAds.length" class="mb-4 space-y-4 sm:mb-6 sm:space-y-6">
@@ -534,6 +592,96 @@ function handleDiscoverAll() {
   width: 3px;
   background: var(--accent-color);
   border-radius: 0 2px 2px 0;
+}
+
+/* Narrow screens render the tab list as a horizontal strip above the content.
+   The strip scrolls, but nothing on screen says so — categories past the edge
+   looked simply absent. A fade at the trailing edge is the only affordance a
+   scroll strip reliably gets on touch, and it costs no layout. */
+@media (max-width: 639px) {
+  .sidebar-tab-btn {
+    @apply w-auto shrink-0 whitespace-nowrap px-3 py-2;
+    font-size: 0.8125rem;
+    /* 38px is two short of what a thumb aims for, and this strip is the only
+       navigation inside settings on a phone. */
+    min-height: 2.5rem;
+  }
+
+  .sidebar-tab-btn.active::before {
+    left: 8px;
+    right: 8px;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    height: 3px;
+    border-radius: 2px 2px 0 0;
+  }
+
+  /* Fade only the side that actually has more tabs, so the strip stops claiming
+     there is more when it is already at the end (the last tab read as disabled). */
+  .settings-tab-strip.fade-right {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+  }
+
+  .settings-tab-strip.fade-left {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 40px);
+    mask-image: linear-gradient(to right, transparent, #000 40px);
+  }
+
+  .settings-tab-strip.fade-left.fade-right {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 40px,
+      #000 calc(100% - 40px),
+      transparent
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 40px,
+      #000 calc(100% - 40px),
+      transparent
+    );
+  }
+
+  /* Phones get a full-bleed settings page rather than a floating dialog: no
+     scrim margin, no border, and the panel itself takes the system insets so its
+     surface reaches the status bar instead of leaving a dimmed letterbox. The
+     header already holds the close button, so it reads as a screen you are on
+     rather than a box on top of one.
+
+     `.phone-safe-inset` (the second class on the overlay) also pads the insets;
+     naming both classes here out-specifies it, so the panel — which applies the
+     insets itself — is not padded twice. */
+  .settings-overlay.phone-safe-inset {
+    padding: 0;
+  }
+
+  .settings-panel {
+    margin: 0;
+    border-width: 0;
+    height: 100%;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* Search sits at the top of the settings page; 38px with a 20px clear button
+     is the same pair the feed drawer had. */
+  .settings-search-input {
+    min-height: 2.5rem;
+    padding-right: 2.75rem;
+  }
+
+  .settings-search-clear {
+    right: 0;
+    width: 2.5rem;
+    height: 2.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
 }
 
 .settings-content {

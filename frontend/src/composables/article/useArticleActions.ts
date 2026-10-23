@@ -3,6 +3,7 @@ import { copyArticleLink, copyArticleTitle } from '@/utils/clipboard';
 import { useAppStore } from '@/stores/app';
 import { useSettings } from '@/composables/core/useSettings';
 import type { Article } from '@/types/models';
+import type { ContextMenuItem } from '@/types/context-menu';
 import type { Composer } from 'vue-i18n';
 
 type ViewMode = 'original' | 'rendered' | 'external';
@@ -42,7 +43,7 @@ export function useArticleActions(
     const effectiveMode = getEffectiveViewMode(article);
 
     // Build menu items array
-    const menuItems = [
+    const menuItems: ContextMenuItem[] = [
       {
         label: article.is_read ? t('article.action.markAsUnread') : t('article.action.markAsRead'),
         action: 'toggleRead',
@@ -160,10 +161,10 @@ export function useArticleActions(
     }
 
     // Add export options based on enabled plugins
-    const exportItems = [];
+    const exportItems: ContextMenuItem[] = [];
 
     // Check each export option
-    if (store.settings?.obsidian_enabled) {
+    if (settings.value.obsidian_enabled) {
       exportItems.push({
         label: t('setting.plugins.obsidian.exportTo'),
         action: 'exportToObsidian',
@@ -171,7 +172,7 @@ export function useArticleActions(
       });
     }
 
-    if (store.settings?.notion_enabled) {
+    if (settings.value.notion_enabled) {
       exportItems.push({
         label: t('setting.plugins.notion.exportTo'),
         action: 'exportToNotion',
@@ -179,7 +180,7 @@ export function useArticleActions(
       });
     }
 
-    if (store.settings?.zotero_enabled) {
+    if (settings.value.zotero_enabled) {
       exportItems.push({
         label: t('setting.plugins.zotero.exportTo'),
         action: 'exportToZotero',

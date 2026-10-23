@@ -16,6 +16,7 @@ require (
 	github.com/go-ego/gse v1.1.0
 	github.com/gomarkdown/markdown v0.0.0-20250810172220-2e2c11897d1a
 	github.com/longbridgeapp/opencc v0.3.13
+	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/mmcdole/gofeed v1.5.0
 	github.com/swaggo/http-swagger v1.3.4
 	github.com/wailsapp/wails/v3 v3.0.0-beta.27

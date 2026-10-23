@@ -819,7 +819,51 @@ async function reattachContentInteractions() {
   await nextTick();
   await reattachImageInteractions();
   attachExternalLinkHandlers();
+  hideAlreadyBrokenImages();
 }
+
+// Feeds go stale: an image whose host is gone leaves the browser's broken-image
+// glyph and a line of alt text sitting in the middle of the article, which reads
+// as a rendering bug rather than as a dead link. Collapse it instead — there is
+// nothing there to read.
+//
+// The listener is delegated on the scroll container in the capture phase: image
+// `error` events do not bubble, but they still reach ancestors on the way down,
+// and the article body is replaced by `v-html` (and each <img> is swapped for a
+// clone by the image-interaction code), so per-image listeners and `data-*`
+// guards both go stale.
+function handleContentImageError(event: Event) {
+  const target = event.target;
+  if (!(target instanceof HTMLImageElement)) return;
+  if (!target.closest('.prose, .prose-content')) return;
+  // Inline rather than a class: this markup comes from `v-html`, which scoped
+  // styles cannot reach.
+  target.style.display = 'none';
+}
+
+// Images that already failed before the delegated listener was attached never
+// fire again, so they need one pass of their own.
+function hideAlreadyBrokenImages() {
+  const container = articleScrollContainer.value;
+  if (!container) return;
+
+  container
+    .querySelectorAll<HTMLImageElement>('.prose img, .prose-content img')
+    .forEach((image) => {
+      if (image.complete && image.naturalWidth === 0) image.style.display = 'none';
+    });
+}
+
+// The container is a template ref, so it appears after the first render; bind
+// and unbind with it rather than with the component's own lifetime.
+watch(
+  articleScrollContainer,
+  (container, previous) => {
+    previous?.removeEventListener('error', handleContentImageError, true);
+    container?.addEventListener('error', handleContentImageError, true);
+  },
+  { flush: 'post' }
+);
 
 async function reattachImageInteractions() {
   if (!props.attachImageEventListeners || !displayContent.value) return;
@@ -1183,6 +1227,7 @@ watch(fullArticleContent, async (content) => {
 
 // Clean up event listeners
 onBeforeUnmount(() => {
+  articleScrollContainer.value?.removeEventListener('error', handleContentImageError, true);
   clearTranslatedSummary();
   titleTranslationRequestId += 1;
   isTranslatingTitle.value = false;
@@ -1386,5 +1431,16 @@ onBeforeUnmount(() => {
 .btn-secondary-compact:hover {
   opacity: 1;
   color: var(--text-primary);
+}
+
+/* On a phone this button is 34px tall and sits at 60% opacity, which is a hover
+   affordance — with no hover it just reads as disabled. Give it a real touch
+   target and full contrast below the phone breakpoint. */
+@media (max-width: 767px) {
+  .btn-secondary-compact {
+    min-height: 40px;
+    padding-inline: 1rem;
+    opacity: 1;
+  }
 }
 </style>

@@ -17,8 +17,11 @@ import {
   PhSquare,
   PhX,
 } from '@phosphor-icons/vue';
+import { usePullToRefresh } from '@/composables/ui/usePullToRefresh';
+import { usePhoneLayout } from '@/composables/ui/usePhoneLayout';
 import ArticleFilterModal from '../modals/filter/ArticleFilterModal.vue';
 import ArticleListMoreMenu from './ArticleListMoreMenu.vue';
+import PullToRefreshIndicator from './parts/PullToRefreshIndicator.vue';
 import TranslationQueueStatus from './parts/TranslationQueueStatus.vue';
 import ReadingReportModal from './ReadingReportModal.vue';
 import {
@@ -88,7 +91,12 @@ const hasScrolledToBottom = ref(false);
 // Layout mode computed
 const layoutMode = computed(() => settings.value.layout_mode || 'normal');
 const isCardMode = computed(() => layoutMode.value === 'card');
-const isTableMode = computed(() => layoutMode.value === 'table');
+// The table is a desktop layout: it has a 600px minimum width, so a phone shows
+// the title column and a sideways scrollbar with the date off-screen. Below the
+// breakpoint the list falls back to its normal rows, which already carry the
+// feed and the date under the title.
+const isPhoneLayout = usePhoneLayout();
+const isTableMode = computed(() => layoutMode.value === 'table' && !isPhoneLayout.value);
 const tableColumns = computed(() => parseArticleTableColumns(settings.value.article_table_columns));
 
 async function scrollPendingFeedArticleIntoView(): Promise<void> {
@@ -607,7 +615,6 @@ onMounted(async () => {
 
     // Parse and apply settings including layout_mode
     settings.value = parseSettingsData(data);
-    console.log('ArticleList settings loaded on mount:', settings.value.layout_mode);
 
     // Set up intersection observer for auto-translation
     if (translationSettings.value.enabled && listRef.value) {
@@ -846,7 +853,6 @@ function onSettingsLoaded(): void {
     .then((res) => res.json())
     .then((data) => {
       settings.value = parseSettingsData(data);
-      console.log('ArticleList settings loaded on startup:', settings.value.layout_mode);
     })
     .catch((err) => console.error('Error loading initial settings in ArticleList:', err));
 }
@@ -1011,9 +1017,23 @@ async function refreshArticles(): Promise<void> {
   isRefreshing.value = true;
   shouldRestoreScroll.value = true; // Enable scroll restoration during refresh
 
-  await store.refreshFeeds();
+  await store.refreshFeeds({ announceErrors: true });
+  // `refreshFeeds` returns without a progress cycle when the current scope has
+  // nothing to fetch (an emptied category, for instance). The watcher below
+  // only fires on a change, so the list would stay pulled down and the
+  // indicator would keep claiming it is refreshing.
+  if (!store.refreshProgress.isRunning) {
+    isRefreshing.value = false;
+    shouldRestoreScroll.value = false;
+  }
   // Note: Scrolling to top is now handled by the watch on refreshProgress.isRunning
 }
+
+// Pulling the list down from the top refreshes, which is the gesture a phone
+// user reaches for before hunting for the toolbar button. The indicator stays
+// up until the refresh watcher clears `isRefreshing`, not just until the
+// request returns.
+const pullToRefresh = usePullToRefresh(listRef, () => void refreshArticles(), { isRefreshing });
 
 async function markAllAsRead(): Promise<void> {
   if (isMarkingAllRead.value || showingPrevious.value || store.isLoading || isFilterLoading.value)
@@ -1314,6 +1334,17 @@ async function reloadArticleOrder(): Promise<void> {
   >
     <div class="p-2 sm:p-4 border-b border-border bg-bg-primary">
       <div class="flex items-center justify-between">
+        <!-- Feed drawer entry, leading the header on phones the same way the
+             gallery header does it. -->
+        <button
+          class="md:hidden mr-1.5 rounded-lg p-2 text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text-primary"
+          :title="t('shortcut.toggle.sidebar')"
+          :aria-label="t('sidebar.feedList.feeds')"
+          :aria-expanded="isSidebarOpen"
+          @click="emit('toggleSidebar')"
+        >
+          <PhList :size="24" />
+        </button>
         <h3
           class="m-0 text-base sm:text-lg font-semibold truncate flex-1"
           :title="articleListTitle"
@@ -1324,14 +1355,14 @@ async function reloadArticleOrder(): Promise<void> {
           <!-- Clear Read Later button - only shown when viewing Read Later list -->
           <button
             v-if="store.currentFilter === 'readLater'"
-            class="text-text-secondary hover:text-red-500 hover:bg-bg-tertiary p-1 sm:p-1.5 rounded transition-colors"
+            class="flex h-10 w-10 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-red-500 sm:h-auto sm:w-auto sm:p-1.5"
             :title="t('common.clearReadLater')"
             @click="clearReadLater"
           >
             <PhTrash :size="18" class="sm:w-5 sm:h-5" />
           </button>
           <button
-            class="text-text-secondary hover:text-text-primary hover:bg-bg-tertiary p-1 sm:p-1.5 rounded transition-colors"
+            class="flex h-10 w-10 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text-primary sm:h-auto sm:w-auto sm:p-1.5"
             :title="withShortcut(t('article.action.markAllRead'), 'markAllRead')"
             :disabled="isMarkingAllRead || store.isLoading || isFilterLoading"
             @click="markAllAsRead"
@@ -1340,7 +1371,7 @@ async function reloadArticleOrder(): Promise<void> {
           </button>
           <button
             v-if="store.currentFilter !== 'favorites'"
-            class="text-text-secondary hover:text-text-primary hover:bg-bg-tertiary p-1 sm:p-1.5 rounded transition-colors"
+            class="flex h-10 w-10 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text-primary sm:h-auto sm:w-auto sm:p-1.5"
             :class="store.showOnlyUnread ? 'text-accent' : ''"
             :title="
               store.showOnlyUnread
@@ -1378,7 +1409,7 @@ async function reloadArticleOrder(): Promise<void> {
             @mouseleave="onRefreshTooltipHide"
           >
             <button
-              class="text-text-secondary hover:text-text-primary hover:bg-bg-tertiary p-1 sm:p-1.5 rounded transition-colors"
+              class="flex h-10 w-10 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-bg-tertiary hover:text-text-primary sm:h-auto sm:w-auto sm:p-1.5"
               :title="withShortcut(t('article.action.refresh'), 'refreshFeeds')"
               @click="refreshArticles"
             >
@@ -1503,14 +1534,6 @@ async function reloadArticleOrder(): Promise<void> {
               </div>
             </Transition>
           </div>
-          <button
-            class="md:hidden text-xl sm:text-2xl p-1"
-            :title="t('shortcut.toggle.sidebar')"
-            :aria-expanded="isSidebarOpen"
-            @click="emit('toggleSidebar')"
-          >
-            <PhList :size="18" class="sm:w-5 sm:h-5" />
-          </button>
         </div>
       </div>
       <div
@@ -1561,7 +1584,10 @@ async function reloadArticleOrder(): Promise<void> {
       @clear="handleAISearchClear"
     />
 
-    <div class="relative flex-1 min-h-0 min-w-0" :class="{ 'cursor-wait': showingPrevious }">
+    <div
+      class="relative flex-1 min-h-0 min-w-0 overflow-hidden"
+      :class="{ 'cursor-wait': showingPrevious }"
+    >
       <div
         v-if="showLoadingIndicator"
         class="absolute inset-x-0 top-0 z-20 flex items-center justify-center gap-2 bg-bg-primary/95 px-3 py-2 text-sm text-text-secondary"
@@ -1570,10 +1596,25 @@ async function reloadArticleOrder(): Promise<void> {
         <PhSpinner :size="16" class="animate-spin" />
         {{ t('article.list.loadingArticles') }}
       </div>
+
+      <PullToRefreshIndicator
+        :distance="pullToRefresh.distance.value"
+        :armed="pullToRefresh.armed.value"
+        :refreshing="isRefreshing"
+      />
+
       <div
         ref="listRef"
         class="h-full overflow-y-scroll article-list-scroll"
-        :class="{ 'pointer-events-none': showingPrevious }"
+        :class="{
+          'pointer-events-none': showingPrevious,
+          'pull-settling': !pullToRefresh.pulling.value,
+        }"
+        :style="
+          pullToRefresh.distance.value
+            ? { transform: `translateY(${pullToRefresh.distance.value}px)` }
+            : undefined
+        "
         :inert="showingPrevious || undefined"
         @scroll="onListScroll"
       >
@@ -1978,6 +2019,12 @@ async function reloadArticleOrder(): Promise<void> {
   overflow-anchor: none;
   /* Smooth scrolling behavior */
   scroll-behavior: auto;
+}
+
+/* Pull-to-refresh settles back with a short ease; while the finger is down the
+   list follows it with no transition, otherwise the drag feels rubbery. */
+.pull-settling {
+  transition: transform 0.25s ease;
 }
 
 .article-list {

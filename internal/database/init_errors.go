@@ -1,30 +1,24 @@
 package database
 
-import (
-	"errors"
-	"fmt"
-
-	"modernc.org/sqlite"
-	sqlite3 "modernc.org/sqlite/lib"
-)
+import "fmt"
 
 // explainInitializationError distinguishes storage access failures from damage.
 // It only annotates the error; it never removes or rebuilds user data.
 func explainInitializationError(err error) error {
-	var sqliteErr *sqlite.Error
-	if !errors.As(err, &sqliteErr) {
+	code, ok := sqlitePrimaryCode(err)
+	if !ok {
 		return err
 	}
 
 	var hint string
-	switch sqliteErr.Code() & 0xff {
-	case sqlite3.SQLITE_CANTOPEN:
+	switch code {
+	case sqliteCantOpen:
 		hint = "database file could not be opened; check that the data directory is available and that the current user can access the database and create its journal files"
-	case sqlite3.SQLITE_READONLY, sqlite3.SQLITE_PERM:
+	case sqliteReadOnly, sqlitePerm:
 		hint = "database storage is not writable; check directory and file permissions and whether the disk is mounted read-only"
-	case sqlite3.SQLITE_FULL:
+	case sqliteFull:
 		hint = "database storage is full; check free space on both the data and temporary-file disks"
-	case sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB:
+	case sqliteCorrupt, sqliteNotADB:
 		hint = "database contents could not be read as a valid SQLite database; stop MrRSS and back up the complete data directory before recovery"
 	default:
 		return err

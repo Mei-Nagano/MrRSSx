@@ -613,6 +613,21 @@ export const useAppStore = defineStore('app', () => {
     applyTheme();
   }
 
+  // Set while a refresh the user asked for is in flight. Background runs stay
+  // quiet: the same broken feed would otherwise toast every interval.
+  let announceRunErrors = false;
+
+  /**
+   * Announces the end of a user-triggered run. The shell listens and reports
+   * how many feeds failed; the store stays free of UI text.
+   */
+  function finishRefreshRun(): void {
+    if (!announceRunErrors) return;
+    announceRunErrors = false;
+    const failed = Object.keys(refreshProgress.value.errors ?? {}).length;
+    window.dispatchEvent(new CustomEvent('refresh-finished', { detail: { failed } }));
+  }
+
   async function refreshSelectedFeeds(): Promise<boolean> {
     let feedIds: number[] = [];
 
@@ -636,6 +651,9 @@ export const useAppStore = defineStore('app', () => {
     const hasScopedSelection = currentFeedId.value !== null || currentCategory.value !== null;
     if (feedIds.length === 0) {
       if (hasScopedSelection) {
+        // Nothing to fetch, so this run never starts or completes; drop the
+        // announcement flag or the next background run would report its errors.
+        announceRunErrors = false;
         return true;
       }
       return false;
@@ -657,12 +675,14 @@ export const useAppStore = defineStore('app', () => {
     } catch (e) {
       console.error('Error refreshing selected feeds:', e);
       refreshProgress.value.isRunning = false;
+      announceRunErrors = false;
       return true;
     }
   }
 
   // Auto Refresh
-  async function refreshFeeds(): Promise<void> {
+  async function refreshFeeds(options?: { announceErrors?: boolean }): Promise<void> {
+    announceRunErrors = options?.announceErrors === true;
     if (await refreshSelectedFeeds()) {
       return;
     }
@@ -693,7 +713,7 @@ export const useAppStore = defineStore('app', () => {
           }
         } catch (e) {
           // Reader sync is independent from the standard feed refresh.
-          console.log(`${provider} sync failed:`, e);
+          console.warn(`${provider} sync failed:`, e);
         }
       }
 
@@ -710,6 +730,8 @@ export const useAppStore = defineStore('app', () => {
       // If no tasks are running, mark as completed immediately
       if (!progressData.is_running) {
         refreshProgress.value.isRunning = false;
+        refreshProgress.value.errors = progressData.errors;
+        finishRefreshRun();
 
         // Still refresh feeds and articles to get any updates from FreshRSS sync
         fetchFeeds();
@@ -727,6 +749,7 @@ export const useAppStore = defineStore('app', () => {
     } catch (e) {
       console.error('Error refreshing feeds:', e);
       refreshProgress.value.isRunning = false;
+      announceRunErrors = false;
     }
   }
 
@@ -740,7 +763,6 @@ export const useAppStore = defineStore('app', () => {
         throw new Error(`Progress API returned ${res.status}: ${res.statusText}`);
       }
       const data = await res.json();
-      console.log('Initial progress update:', data);
       refreshProgress.value = {
         ...refreshProgress.value,
         isRunning: data.is_running,
@@ -749,7 +771,6 @@ export const useAppStore = defineStore('app', () => {
         article_click_count: data.article_click_count,
         queue_task_count: data.queue_task_count,
       };
-      console.log('Initial refreshProgress:', refreshProgress.value);
     } catch (e) {
       console.error('Error fetching initial progress:', e);
     }
@@ -765,6 +786,9 @@ export const useAppStore = defineStore('app', () => {
     progressController = null;
     if (progressTimer) clearTimeout(progressTimer);
     progressTimer = null;
+    // Nobody will observe this run complete, so it must not report its errors
+    // through a later background run.
+    announceRunErrors = false;
   }
 
   function pollProgress(): void {
@@ -797,6 +821,7 @@ export const useAppStore = defineStore('app', () => {
         const changed = revision !== null && revision !== displayedArticleRevision;
         lastArticleRevision = revision;
         const completed = wasRunning && !active;
+        if (completed) finishRefreshRun();
         if (completed || (changed && !active)) {
           // Publish the finished batch once, as before background polling was added.
           // Replacing the viewport for each saved feed starts translations of rows
@@ -895,13 +920,10 @@ export const useAppStore = defineStore('app', () => {
           // Check if auto-update is enabled before downloading
           const { settings } = useSettings();
 
-          console.log('[DEBUG] Update found, auto_update =', settings.value.auto_update);
           if (settings.value.auto_update) {
-            console.log('[DEBUG] Auto-downloading update...');
             // Auto download and install in background
             autoDownloadAndInstall(data.download_url, data.asset_name);
           } else {
-            console.log('[DEBUG] Auto-update disabled, showing notification only');
             // Just show notification that update is available
             if (window.showToast) {
               window.showToast(`Update available: v${data.latest_version}`, 'info', 5000);

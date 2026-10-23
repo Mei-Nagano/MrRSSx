@@ -5,12 +5,16 @@ import { useSettingsAutoSave } from '@/composables/core/useSettingsAutoSave';
 import ApplicationSettings from './ApplicationSettings.vue';
 import UpdateSettings from './UpdateSettings.vue';
 import DataManagementSettings from './DataManagementSettings.vue';
+import { isDesktopShell } from '@/utils/platform';
 
 interface Props {
   settings: SettingsData;
 }
 
 const props = defineProps<Props>();
+
+// In-app updates download and run a desktop installer, which a phone app cannot do.
+const showUpdateSettings = isDesktopShell();
 
 const emit = defineEmits<{
   'update:settings': [settings: SettingsData];
@@ -34,7 +38,7 @@ function handleUpdateSettings(updatedSettings: SettingsData) {
   <div class="space-y-4 sm:space-y-6">
     <ApplicationSettings :settings="settings" @update:settings="handleUpdateSettings" />
 
-    <UpdateSettings :settings="settings" @update:settings="handleUpdateSettings" />
+    <UpdateSettings v-if="showUpdateSettings" :settings="settings" @update:settings="handleUpdateSettings" />
 
     <DataManagementSettings :settings="settings" @update:settings="handleUpdateSettings" />
   </div>

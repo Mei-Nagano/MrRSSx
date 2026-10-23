@@ -9,6 +9,7 @@ import {
   PhArrowClockwise,
   PhCheck,
   PhX,
+  PhTestTube,
 } from '@phosphor-icons/vue';
 import { SettingGroup } from '@/components/settings';
 import type { AIProfile, AIProfileTestResult, AIProfileFormData } from '@/types/aiProfile';

@@ -194,13 +194,13 @@ function formatBytes(bytes: number): string {
             v-else-if="updateInfo.has_update && !updateInfo.download_url"
             class="mt-2 sm:mt-3 text-xs text-text-secondary"
           >
-            <p class="mb-2">No installer available for your platform. Please download manually:</p>
+            <p class="mb-2">{{ t('setting.update.noInstaller') }}</p>
             <button
               type="button"
               class="text-accent hover:underline break-all"
               @click="openGitHubRelease"
             >
-              View on GitHub
+              {{ t('setting.about.viewOnGitHub') }}
             </button>
           </div>
         </div>
@@ -210,7 +210,7 @@ function formatBytes(bytes: number): string {
     <div class="mt-4 sm:mt-6">
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 sm:gap-2 text-accent hover:text-accent-hover transition-colors text-xs sm:text-sm font-medium"
+        class="about-link inline-flex items-center gap-1.5 sm:gap-2 text-accent hover:text-accent-hover transition-colors text-xs sm:text-sm font-medium"
         @click="openGitHubRepo"
       >
         <PhGithubLogo :size="20" class="sm:w-6 sm:h-6" />
@@ -228,6 +228,15 @@ function formatBytes(bytes: number): string {
 
 <style scoped>
 @reference "../../../../style.css";
+
+/* The only action on the about page is a 20px-tall icon-and-text link. */
+@media (max-width: 767px) {
+  .about-link {
+    min-height: 2.5rem;
+    padding-inline: 0.25rem;
+  }
+}
+
 .btn {
   @apply px-3 sm:px-4 py-1.5 sm:py-2 rounded-md cursor-pointer flex items-center gap-1.5 sm:gap-2 font-medium transition-colors;
 }

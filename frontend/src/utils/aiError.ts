@@ -1,4 +1,4 @@
-import i18n from '@/i18n';
+import { translate } from '@/i18n';
 
 export interface ParsedAIError {
   code: string;
@@ -97,7 +97,7 @@ function inferCode(payload: unknown, status?: number): string {
 
 export function getAIErrorMessage(payload: unknown, status?: number): string {
   const code = inferCode(payload, status);
-  return String(i18n.global.t(`aiErrors.${code}`));
+  return translate(`aiErrors.${code}`);
 }
 
 export async function readAIError(response: Response): Promise<ParsedAIError> {

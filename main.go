@@ -1,10 +1,10 @@
-//go:build !server
+//go:build !server && !android && !ios
 
 package main
 
 import (
 	"context"
-	"embed"
+	_ "embed"
 	"fmt"
 	"io/fs"
 	"log"
@@ -36,17 +36,6 @@ import (
 	"MrRSS/internal/utils/httputil"
 )
 
-var debugLogging = os.Getenv("MRRSS_DEBUG") != ""
-
-func debugLog(format string, args ...interface{}) {
-	if debugLogging {
-		log.Printf(format, args...)
-	}
-}
-
-//go:embed frontend/dist
-var frontendFiles embed.FS
-
 // Platform-specific icon embedding
 // Windows and macOS both use PNG format for system tray
 // Windows .ico is only used for executable icon (via syso)
@@ -63,34 +52,6 @@ func getAppIcon() []byte {
 		return appIconWindows
 	}
 	return appIconMacOS
-}
-
-type CombinedHandler struct {
-	apiMux     *http.ServeMux
-	fileServer http.Handler
-}
-
-func (h *CombinedHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if strings.HasPrefix(r.URL.Path, "/api/") {
-		h.apiMux.ServeHTTP(w, r)
-		return
-	}
-	h.fileServer.ServeHTTP(w, r)
-}
-
-// APIMiddleware routes API requests to the API handler, and lets Wails handle the rest
-func APIMiddleware(combinedHandler *CombinedHandler) application.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Let the /wails route be handled by Wails runtime
-			if strings.HasPrefix(r.URL.Path, "/wails") {
-				next.ServeHTTP(w, r)
-				return
-			}
-			// Handle API routes and serve static files
-			combinedHandler.ServeHTTP(w, r)
-		})
-	}
 }
 
 func main() {
@@ -234,7 +195,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fileServer := http.FileServer(http.FS(frontendFS))
+	fileServer := newFrontendFileServer(frontendFS)
 
 	combinedHandler := &CombinedHandler{
 		apiMux:     apiMux,

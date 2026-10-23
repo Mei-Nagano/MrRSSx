@@ -104,7 +104,7 @@ function selectArticleFeed() {
     <div class="flex items-center gap-2">
       <button
         type="button"
-        class="font-medium text-text-primary hover:text-accent transition-colors cursor-pointer"
+        class="feed-link-hit relative font-medium text-text-primary hover:text-accent transition-colors cursor-pointer"
         :title="t('article.action.goToFeed')"
         @click="selectArticleFeed"
       >
@@ -141,3 +141,13 @@ function selectArticleFeed() {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* The feed name is 16px tall — a third of a thumb. Grow the hit area without
+   moving the text, the same trick the toolbar's back arrow uses. */
+.feed-link-hit::after {
+  content: '';
+  position: absolute;
+  inset: -12px -8px;
+}
+</style>
