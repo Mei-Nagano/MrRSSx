@@ -69,11 +69,14 @@ bash build/android/package.sh --abi x86_64    # emulator only -> build/bin/MrRSS
 ```
 
 不用本地工具链时，`.github/workflows/android.yml` 会在 GitHub Actions 里构建同样的两个包
-（全 ABI 与 arm64），手动触发或在推送 `v*` 标签时运行，产物在 workflow 的 artifact 中下载。
+（全 ABI 与 arm64），手动触发或在推送 `v*` 标签时运行。手动构建会更新滚动发布
+`Latest Android build`（tag `latest`），标签构建则把两个 APK 附加到该标签的 release 上，
+workflow 的 artifact 里也保留一份。
 
 The same workflow (`.github/workflows/android.yml`) builds both packages on GitHub
-Actions — manual dispatch or a `v*` tag — and publishes them as workflow artifacts,
-so no local Android toolchain is needed.
+Actions — manual dispatch or a `v*` tag. A manual run refreshes the rolling
+`Latest Android build` release (tag `latest`); a tag run attaches both APKs to that
+tag's release. The workflow artifacts keep a second copy.
 
 > `task android:dev` / `dev.sh` 会删掉 `jniLibs/arm64-v8a/libwails.so`，让 APK 只含
 > x86_64。之后要出真机包，用 `task android:build ARCH=arm64` 或 `package.sh`
