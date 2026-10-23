@@ -51,7 +51,7 @@ jobs:
             exit 1
           fi
           echo "Installing $NDK_PACKAGE"
-          yes | sdkmanager "$NDK_PACKAGE" > /dev/null
+          sdkmanager "$NDK_PACKAGE" > /dev/null
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_PACKAGE#ndk;}" >> "$GITHUB_ENV"
 
       - name: Install frontend dependencies
