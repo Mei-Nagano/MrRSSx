@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
@@ -1583,6 +1584,7 @@ func HandleWebpageResource(h *core.Handler, w http.ResponseWriter, r *http.Reque
 		response.Error(w, nil, http.StatusMethodNotAllowed)
 		return
 	}
+	metadataOnly := r.URL.Query().Get("meta") == "1"
 
 	// Get URL from query parameter (support both direct and base64-encoded)
 	resourceURL := r.URL.Query().Get("url")
@@ -1724,19 +1726,16 @@ func HandleWebpageResource(h *core.Handler, w http.ResponseWriter, r *http.Reque
 	// Also infer content type from file extension as fallback
 	inferredContentType := getContentTypeFromPath(resourceURL)
 
-	// CRITICAL FIX: Always use inferred content type for known file types
-	// Many servers return incorrect Content-Type headers (e.g., text/plain for .css or .js files)
-	// We override these with the correct type based on file extension
+	// Keep the existing corrections for known extensions, while preserving a
+	// meaningful upstream type for extensionless resources such as module scripts.
+	mediaType := strings.ToLower(strings.TrimSpace(strings.SplitN(contentType, ";", 2)[0]))
 	shouldInferType := false
 	ext := strings.ToLower(filepath.Ext(resourceURL))
 	switch ext {
 	case ".css", ".js", ".mjs", ".woff", ".woff2", ".ttf", ".eot", ".otf", ".json", ".xml":
-		// These types MUST have correct MIME types or browsers will reject them
 		shouldInferType = true
 	}
-
-	// Use inferred content type if the response's content type is missing, generic, or for known types
-	if contentType == "" || contentType == "application/octet-stream" || contentType == "text/plain" || shouldInferType {
+	if contentType == "" || mediaType == "application/octet-stream" || mediaType == "text/plain" || shouldInferType {
 		contentType = inferredContentType
 		log.Printf("[Resource Proxy] Using inferred content type for %s: %s (original: %s)", resourceURL, contentType, resp.Header.Get("Content-Type"))
 	}
@@ -1781,6 +1780,10 @@ func HandleWebpageResource(h *core.Handler, w http.ResponseWriter, r *http.Reque
 
 		// Update content length
 		bodyBytes = []byte(cssContent)
+		if metadataOnly {
+			writeResourceMetadata(w, contentType, bodyBytes)
+			return
+		}
 		w.Header().Set("Content-Length", strconv.Itoa(len(bodyBytes)))
 
 		// Write the modified CSS
@@ -1790,6 +1793,16 @@ func HandleWebpageResource(h *core.Handler, w http.ResponseWriter, r *http.Reque
 		}
 		return
 	}
+	if metadataOnly {
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Printf("Failed to read resource metadata body: %v", err)
+			response.Error(w, err, http.StatusInternalServerError)
+			return
+		}
+		writeResourceMetadata(w, contentType, bodyBytes)
+		return
+	}
 
 	// For non-CSS files, stream directly
 	// Stream the response directly to avoid loading large files into memory
@@ -1797,6 +1810,27 @@ func HandleWebpageResource(h *core.Handler, w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		log.Printf("Failed to stream resource: %v", err)
 	}
+}
+
+type resourceMetadata struct {
+	ContentType string `json:"content_type"`
+	Body        string `json:"body"`
+}
+
+// writeResourceMetadata keeps the existing byte-only native asset contract while
+// carrying the upstream type alongside the body for Android subresource loads.
+func writeResourceMetadata(w http.ResponseWriter, contentType string, body []byte) {
+	payload, err := json.Marshal(resourceMetadata{
+		ContentType: contentType,
+		Body:        base64.StdEncoding.EncodeToString(body),
+	})
+	if err != nil {
+		response.Error(w, err, http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-cache")
+	_, _ = w.Write(payload)
 }
 
 // proxyMediaDirectly proxies media directly without caching

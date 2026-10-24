@@ -84,10 +84,10 @@ func TestSyncRecoversTheBandWhenItCanBeEnumerated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
-	// 100 rows in the first page, 2 on the next one, and the 2 the page cut are
-	// fetched back from the band. Without the recovery this stays at 102.
-	if result.Skipped != 104 {
-		t.Errorf("skipped = %d, want 104 (the cut rows must be fetched back)", result.Skipped)
+	// The strict boundary query returns the five-row band once; the two rows that
+	// were cut from the first page are de-duplicated before counting.
+	if result.Skipped != 102 {
+		t.Errorf("skipped = %d, want 102 (recovered rows must count once)", result.Skipped)
 	}
 	if result.Truncated {
 		t.Errorf("a band of five that fits in one page is not a gap (truncatedAt=%q)", result.TruncatedAt)

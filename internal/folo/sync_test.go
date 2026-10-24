@@ -526,7 +526,7 @@ func TestSyncPullsNewestFirstAndAdvancesCursor(t *testing.T) {
 	if calls[0].sortOrder != "desc" || calls[0].newerThan == "" || calls[0].olderThan != "" {
 		t.Errorf("first call = %+v, want a newest-first page above the cursor", calls[0])
 	}
-	if want := shiftTime(entries[99].PublishedAt, -time.Millisecond); calls[1].olderThan != want {
+	if want := entries[99].PublishedAt; calls[1].olderThan != want {
 		t.Errorf("second call olderThan = %q, want %q", calls[1].olderThan, want)
 	}
 	if !calls[3].collection || calls[3].newerThan != "" || calls[3].olderThan != "" {
@@ -553,8 +553,8 @@ func TestSyncBackfillsWhenPageBudgetRunsOut(t *testing.T) {
 		t.Fatalf("first Sync: %v", err)
 	}
 	cursor, _ := db.GetSetting(SyncCursorKey)
-	if cursor != entries[499].PublishedAt {
-		t.Fatalf("cursor = %q, want the oldest entry the budget covered %q", cursor, entries[499].PublishedAt)
+	if cursor != entries[495].PublishedAt {
+		t.Fatalf("cursor = %q, want the oldest entry the budget covered %q", cursor, entries[495].PublishedAt)
 	}
 	if backfill, _ := db.GetSetting(SyncBackfillKey); backfill != "2026-10-01T00:00:00Z" {
 		t.Errorf("backfill = %q, want the previous cursor", backfill)
@@ -577,7 +577,7 @@ func TestSyncBackfillsWhenPageBudgetRunsOut(t *testing.T) {
 		t.Errorf("live call newerThan = %q, want %q", got, want)
 	}
 	// ...and the rest of the budget continues the backfill below the cursor.
-	if got, want := calls[7].olderThan, shiftTime(entries[499].PublishedAt, -time.Millisecond); got != want {
+	if got, want := calls[7].olderThan, entries[495].PublishedAt; got != want {
 		t.Errorf("resume call olderThan = %q, want %q", got, want)
 	}
 	if got := calls[7].newerThan; got != "" {
@@ -648,8 +648,8 @@ func TestSyncPullsNewEntriesWhileBackfilling(t *testing.T) {
 	}
 	// The live window re-reads the boundary entry plus the 3 fresh ones, then the
 	// backfill reaches the remaining 200 older entries.
-	if result.Skipped != 204 {
-		t.Errorf("skipped = %d, want 204", result.Skipped)
+	if result.Skipped != 209 {
+		t.Errorf("skipped = %d, want 209", result.Skipped)
 	}
 	if top, _ := db.GetSetting(SyncTopKey); top != fresh[0].PublishedAt {
 		t.Errorf("top = %q, want the newest fresh entry %q", top, fresh[0].PublishedAt)
@@ -684,15 +684,15 @@ func TestSyncReportsTruncatedCoverageForOnePublishTimeOverflow(t *testing.T) {
 	if result.TruncatedAt != published {
 		t.Errorf("truncatedAt = %q, want %q", result.TruncatedAt, published)
 	}
-	// Two timeline pages, one band re-read for the unsplittable publish time, then
-	// the collection pass: the walk stops instead of looping on that page.
+	// Two timeline pages, one bounded request below the unsplittable publish time,
+	// then the collection pass: the walk stops instead of looping on that page.
 	calls := feed.calls()
 	if len(calls) != 4 {
 		t.Fatalf("timeline calls = %d, want 4: %+v", len(calls), calls)
 	}
 	band := calls[2]
-	if band.newerThan == "" || band.olderThan == "" {
-		t.Errorf("third call is not bounded on both sides: %+v", band)
+	if band.newerThan != "" || band.olderThan != shiftTime(published, -time.Nanosecond) {
+		t.Errorf("third call is not the bounded request below the band: %+v", band)
 	}
 	// The cursor still advances to the boundary so a later pass does not walk the
 	// same page again from the top.

@@ -6,11 +6,10 @@ import java.util.Locale;
 /**
  * Maps a proxied resource's original URL to the MIME type the WebView needs.
  *
- * <p>The bridge returns response bytes only, so the upstream {@code Content-Type}
- * never reaches the host and the type has to be inferred. The original URL is the
- * same fact the proxy used to fetch the resource, which makes its extension a
- * better signal than a guess. Stylesheets, module scripts and fonts carry no
- * magic bytes, so inferring them from the payload is impossible.
+ * <p>Native webpage responses may carry the upstream {@code Content-Type} beside
+ * their bytes. URL and byte inference remain fallbacks for old responses and
+ * missing or generic upstream headers. Stylesheets, module scripts and fonts
+ * carry no magic bytes, so an extensionless response needs the upstream type.
  *
  * <p>Kept free of Android types so it can be unit tested on a plain JVM.
  */
@@ -75,5 +74,20 @@ final class ResourceMime {
             return null;
         }
         return trimmed;
+    }
+
+    /**
+     * Extracts the media type from an upstream Content-Type header. Parameters
+     * such as charset belong to the response encoding, not WebResourceResponse's
+     * MIME argument. An empty or malformed header remains unknown so callers can
+     * use their existing byte and URL fallbacks.
+     */
+    static String fromContentType(String contentType) {
+        if (contentType == null) {
+            return null;
+        }
+        int separator = contentType.indexOf(';');
+        String mediaType = separator >= 0 ? contentType.substring(0, separator) : contentType;
+        return fromTypeHint(mediaType.toLowerCase(Locale.ROOT));
     }
 }

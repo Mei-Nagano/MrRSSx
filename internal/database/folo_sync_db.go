@@ -208,6 +208,17 @@ func (db *DB) UpdateFoloSnapshot(articleID int64, read, favorite bool) error {
 	return err
 }
 
+// UpdateFoloSnapshotPreserveOrder updates a recheck result without moving the
+// mapping in the push rotation. A recheck must not make a pending local change
+// look newer than untouched mappings.
+func (db *DB) UpdateFoloSnapshotPreserveOrder(articleID int64, read, favorite bool) error {
+	db.WaitForReady()
+	_, err := db.Exec(
+		"UPDATE folo_entry_map SET last_read = ?, last_favorite = ? WHERE article_id = ?",
+		boolToInt(read), boolToInt(favorite), articleID)
+	return err
+}
+
 // CountFoloMappings reports how many local articles are linked to Folo entries.
 func (db *DB) CountFoloMappings() (int, error) {
 	db.WaitForReady()

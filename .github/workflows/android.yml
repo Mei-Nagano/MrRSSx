@@ -12,6 +12,11 @@ on:
   # Called by release.yml so a single dispatch produces every platform. On its own
   # a manual release built only the desktop targets, and the APKs needed a second run.
   workflow_call:
+    inputs:
+      release_tag:
+        description: Release tag selected by the parent release workflow
+        required: false
+        type: string
 
 jobs:
   build:
@@ -21,6 +26,11 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          # A named release must build from its tag. The rolling `latest` tag may
+          # point at an older commit, so use the caller's current commit for it
+          # and for standalone dispatches/tag pushes.
+          ref: ${{ inputs.release_tag != '' && inputs.release_tag != 'latest' && inputs.release_tag || github.sha }}
 
       - name: Set up Go
         uses: actions/setup-go@v7
@@ -87,18 +97,29 @@ jobs:
           # the run page, so it does not need the default retention.
           retention-days: 7
 
-      # Tag builds attach the APKs to that tag's release (creating it only if
-      # the desktop release workflow has not done so yet, without touching an
-      # existing release's notes). Manual builds refresh one rolling release so
-      # there is always a stable download URL.
+      # A parent release supplies the exact tag to publish. Standalone tag pushes
+      # use their real tag; a manual branch dispatch keeps the rolling `latest`
+      # behavior and never changes which commit that tag points to.
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
           FILES=(build/bin/MrRSS.apk build/bin/MrRSS-arm64-v8a.apk)
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+          TAG=""
+          if [ -n "${RELEASE_TAG:-}" ]; then
+            TAG="$RELEASE_TAG"
+          elif [ "$GITHUB_REF_TYPE" = "tag" ]; then
             TAG="$GITHUB_REF_NAME"
+          fi
+
+          if [ -n "$TAG" ]; then
+            # Keep the tag as one quoted argument and reject option-like input.
+            if [[ "$TAG" == -* || "$TAG" == *$'\n'* || "$TAG" == *$'\r'* ]]; then
+              echo "Invalid release tag"
+              exit 1
+            fi
             if gh release view "$TAG" > /dev/null 2>&1; then
               gh release upload "$TAG" "${FILES[@]}" --clobber
             elif ! gh release create "$TAG" --title "$TAG" --generate-notes "${FILES[@]}" 2>/dev/null; then

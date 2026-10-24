@@ -14,8 +14,8 @@ android {
         applicationId "com.mrrss.app"
         minSdk 21
         targetSdk 35
-        versionCode 10340
-        versionName "1.3.40"
+        versionCode 10341
+        versionName "1.3.41"
 
         // Configure supported ABIs. `-PabiFilters=arm64-v8a` narrows this to a
         // single ABI, which is how the phone-only package is built; the default

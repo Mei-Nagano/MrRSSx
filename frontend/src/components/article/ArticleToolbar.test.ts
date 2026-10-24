@@ -164,6 +164,55 @@ describe('Article toolbar', () => {
     wrapper.unmount();
   });
 
+  it('shrinks the menu to the usable space in a short phone viewport', async () => {
+    usePhoneViewport();
+    vi.stubGlobal('innerWidth', 639);
+    vi.stubGlobal('innerHeight', 240);
+    const bar = document.createElement('div');
+    bar.className = 'smart-activity-bar';
+    Object.defineProperty(bar, 'offsetHeight', { value: 56 });
+    bar.getBoundingClientRect = () =>
+      ({ top: 184, bottom: 240, height: 56, width: 639, left: 0, right: 639 }) as DOMRect;
+    document.body.appendChild(bar);
+
+    const wrapper = mountToolbar();
+    await wrapper.vm.$nextTick();
+    const trigger = wrapper.find('[aria-label="article.toolbar.moreActions"]').element;
+    trigger.getBoundingClientRect = () =>
+      ({ top: 8, bottom: 54, height: 46, width: 40, left: 591, right: 631 }) as DOMRect;
+    await wrapper.find('[aria-label="article.toolbar.moreActions"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    const panel = document.querySelector('[role="menu"]') as HTMLElement;
+    const top = Number.parseFloat(panel.style.top);
+    const maxHeight = Number.parseFloat(panel.style.maxHeight);
+    expect(maxHeight).toBeLessThan(160);
+    expect(top + maxHeight).toBeLessThanOrEqual(184);
+    expect(panel.querySelectorAll('[role="menuitem"]')).toHaveLength(5);
+    wrapper.unmount();
+  });
+
+  it('moves the menu above the trigger when that side has more room', async () => {
+    usePhoneViewport();
+    vi.stubGlobal('innerWidth', 639);
+    vi.stubGlobal('innerHeight', 480);
+
+    const wrapper = mountToolbar();
+    await wrapper.vm.$nextTick();
+    const trigger = wrapper.find('[aria-label="article.toolbar.moreActions"]').element;
+    trigger.getBoundingClientRect = () =>
+      ({ top: 360, bottom: 406, height: 46, width: 40, left: 591, right: 631 }) as DOMRect;
+    await wrapper.find('[aria-label="article.toolbar.moreActions"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    const panel = document.querySelector('[role="menu"]') as HTMLElement;
+    const top = Number.parseFloat(panel.style.top);
+    const maxHeight = Number.parseFloat(panel.style.maxHeight);
+    expect(top + maxHeight).toBeLessThanOrEqual(354);
+    expect(top).toBeGreaterThanOrEqual(8);
+    wrapper.unmount();
+  });
+
   // The menu is a layer: back while it is open belongs to it, not to the article
   // underneath, which used to close with the menu still on screen.
   it('closes the overflow menu on back before the article', async () => {
@@ -175,10 +224,13 @@ describe('Article toolbar', () => {
     await wrapper.vm.$nextTick();
     expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(5);
 
-    const handled = (window as unknown as { __mrrssHandleBack?: () => boolean }).__mrrssHandleBack?.();
+    const handled = (
+      window as unknown as { __mrrssHandleBack?: () => boolean }
+    ).__mrrssHandleBack?.();
     await wrapper.vm.$nextTick();
 
     expect(handled).toBe(true);
     expect(document.querySelector('[role="menu"]')).toBeNull();
     wrapper.unmount();
-  });});
+  });
+});

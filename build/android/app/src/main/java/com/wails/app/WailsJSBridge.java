@@ -3,6 +3,7 @@ package com.wails.app;
 import android.util.Log;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.Locale;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import com.wails.app.BuildConfig;
@@ -22,21 +23,26 @@ public class WailsJSBridge {
 
     private final WailsBridge bridge;
     private final WebView webView;
+    private final String capability;
 
-    public WailsJSBridge(WailsBridge bridge, WebView webView) {
+    public WailsJSBridge(WailsBridge bridge, WebView webView, String capability) {
         this.bridge = bridge;
         this.webView = webView;
+        this.capability = capability;
     }
 
     /**
      * Send a message to Go and return the response synchronously.
-     * Called from JavaScript: wails.invoke(message)
+     * Called from JavaScript: wails.invoke(message, capability)
      *
      * @param message The message to send (JSON string)
      * @return The response from Go (JSON string)
      */
     @JavascriptInterface
-    public String invoke(String message) {
+    public String invoke(String message, String suppliedCapability) {
+        if (!isAuthorized(suppliedCapability)) {
+            return "{\"error\":\"unauthorized bridge call\"}";
+        }
         if (DEBUG) Log.d(TAG, "Invoke called: " + message);
         return bridge.handleMessage(message);
     }
@@ -44,13 +50,20 @@ public class WailsJSBridge {
     /**
      * Send a message to Go asynchronously.
      * The response will be sent back via a callback.
-     * Called from JavaScript: wails.invokeAsync(callbackId, message)
+     * Called from JavaScript: wails.invokeAsync(callbackId, message, capability)
      *
      * @param callbackId The callback ID to use for the response
      * @param message The message to send (JSON string)
      */
     @JavascriptInterface
-    public void invokeAsync(final String callbackId, final String payload) {
+    public void invokeAsync(final String callbackId, final String payload,
+                            final String suppliedCapability) {
+        if (!isAuthorized(suppliedCapability)) {
+            // Do not invoke a callback owned by the main document on behalf of
+            // an untrusted frame. The guarded app wrapper always supplies the
+            // capability, so rejection can return without touching WebView JS.
+            return;
+        }
         if (DEBUG) Log.d(TAG, "InvokeAsync called: " + payload);
 
         // Handle off the JS thread so we don't block the WebView.
@@ -65,54 +78,28 @@ public class WailsJSBridge {
         });
     }
 
-    /**
-     * Log a message from JavaScript to Android's logcat
-     * Called from JavaScript: wails.log(level, message)
-     *
-     * @param level The log level (debug, info, warn, error)
-     * @param message The message to log
-     */
+    /** Log a message from the trusted frontend without exposing an ungated method. */
     @JavascriptInterface
-    public void log(String level, String message) {
-        switch (level.toLowerCase()) {
-            case "debug":
-                Log.d(TAG + "/JS", message);
-                break;
-            case "info":
-                Log.i(TAG + "/JS", message);
-                break;
-            case "warn":
-                Log.w(TAG + "/JS", message);
-                break;
-            case "error":
-                Log.e(TAG + "/JS", message);
-                break;
-            default:
-                Log.v(TAG + "/JS", message);
-                break;
+    public void log(String level, String message, String suppliedCapability) {
+        if (!isAuthorized(suppliedCapability)) return;
+        String safeLevel = level == null ? "" : level.toLowerCase(Locale.ROOT);
+        switch (safeLevel) {
+            case "debug": Log.d(TAG + "/JS", message); break;
+            case "info": Log.i(TAG + "/JS", message); break;
+            case "warn": Log.w(TAG + "/JS", message); break;
+            case "error": Log.e(TAG + "/JS", message); break;
+            default: Log.v(TAG + "/JS", message); break;
         }
     }
 
-    /**
-     * Get the platform name
-     * Called from JavaScript: wails.platform()
-     *
-     * @return "android"
-     */
     @JavascriptInterface
-    public String platform() {
-        return "android";
+    public String platform(String suppliedCapability) {
+        return isAuthorized(suppliedCapability) ? "android" : "";
     }
 
-    /**
-     * Check if we're running in debug mode
-     * Called from JavaScript: wails.isDebug()
-     *
-     * @return true if debug build, false otherwise
-     */
     @JavascriptInterface
-    public boolean isDebug() {
-        return BuildConfig.DEBUG;
+    public boolean isDebug(String suppliedCapability) {
+        return isAuthorized(suppliedCapability) && DEBUG;
     }
 
     /**
@@ -135,6 +122,22 @@ public class WailsJSBridge {
         }
 
         webView.post(() -> webView.evaluateJavascript(js, null));
+    }
+
+    /**
+     * The native object is visible to every WebView frame. Only the app's
+     * top-document wrapper knows this capability; frames that bypass the wrapper
+     * (including old WebViews without document-start scripts) are rejected here.
+     */
+    static boolean isAuthorizedCapability(String suppliedCapability, String expectedCapability) {
+        if (suppliedCapability == null || expectedCapability == null || expectedCapability.isEmpty()) {
+            return false;
+        }
+        return expectedCapability.equals(suppliedCapability);
+    }
+
+    private boolean isAuthorized(String suppliedCapability) {
+        return isAuthorizedCapability(suppliedCapability, capability);
     }
 
     private String escapeJsString(String str) {

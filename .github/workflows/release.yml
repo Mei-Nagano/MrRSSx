@@ -129,6 +129,8 @@ jobs:
     name: Build android
     needs: create-release
     uses: ./.github/workflows/android.yml
+    with:
+      release_tag: ${{ needs.create-release.outputs.tag }}
     permissions:
       contents: write
 
@@ -141,7 +143,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.create-release.outputs.tag }}
+          # Build the dispatch commit, including when the rolling tag is older.
+          ref: ${{ github.sha }}
 
       - name: Validate generated skill API reference
         run: |
@@ -222,7 +225,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.create-release.outputs.tag }}
+          ref: ${{ github.sha }}
 
       - name: Check if artifacts already exist
         id: check_artifacts

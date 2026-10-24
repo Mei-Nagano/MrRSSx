@@ -3,6 +3,7 @@ package media
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -11,6 +12,64 @@ import (
 	"sync/atomic"
 	"testing"
 )
+
+func TestHandleWebpageResourceMetadataPreservesExtensionlessModuleType(t *testing.T) {
+	h := setupHandler(t)
+	defer h.DB.Close()
+	resource := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/legacy.js" {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			_, _ = w.Write([]byte("export const legacy = true;"))
+			return
+		}
+		if r.URL.Path != "/module" {
+			t.Errorf("unexpected resource path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		_, _ = w.Write([]byte("export const answer = 42;"))
+	}))
+	defer resource.Close()
+
+	encode := func(value string) string {
+		return url.QueryEscape(base64.StdEncoding.EncodeToString([]byte(value)))
+	}
+	path := "/api/webpage/resource?url_b64=" + encode(resource.URL+"/module") +
+		"&referer_b64=" + encode(resource.URL+"/article") + "&meta=1"
+	record := httptest.NewRecorder()
+	HandleWebpageResource(h, record, httptest.NewRequest(http.MethodGet, path, nil))
+	if record.Code != http.StatusOK {
+		t.Fatalf("metadata response status = %d: %s", record.Code, record.Body.String())
+	}
+
+	var envelope struct {
+		ContentType string `json:"content_type"`
+		Body        string `json:"body"`
+	}
+	if err := json.Unmarshal(record.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode metadata envelope: %v", err)
+	}
+	if envelope.ContentType != "text/javascript; charset=utf-8" {
+		t.Fatalf("content type = %q, want upstream header", envelope.ContentType)
+	}
+	body, err := base64.StdEncoding.DecodeString(envelope.Body)
+	if err != nil {
+		t.Fatalf("decode metadata body: %v", err)
+	}
+	if string(body) != "export const answer = 42;" {
+		t.Fatalf("body = %q, want module source", body)
+	}
+
+	legacyPath := "/api/webpage/resource?url_b64=" + encode(resource.URL+"/legacy.js") +
+		"&referer_b64=" + encode(resource.URL+"/article")
+	legacy := httptest.NewRecorder()
+	HandleWebpageResource(h, legacy, httptest.NewRequest(http.MethodGet, legacyPath, nil))
+	if legacy.Code != http.StatusOK || legacy.Header().Get("Content-Type") != "application/javascript; charset=utf-8" {
+		t.Fatalf("known extension correction = %d %q, want existing JS correction",
+			legacy.Code, legacy.Header().Get("Content-Type"))
+	}
+}
 
 func TestMediaProxyUsesApplicationProxy(t *testing.T) {
 	for _, cacheEnabled := range []bool{false, true} {

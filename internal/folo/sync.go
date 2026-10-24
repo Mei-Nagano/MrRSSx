@@ -67,6 +67,11 @@ type SyncResult struct {
 	// complete sync.
 	Truncated   bool   `json:"truncated"`
 	TruncatedAt string `json:"truncated_at,omitempty"`
+	// RecheckIncomplete reports that a mapped entry could not be confirmed
+	// within the bounded publish-time lookup. Its local snapshot is left alone
+	// so a pending local change remains eligible for the push pass.
+	RecheckIncomplete   bool   `json:"recheck_incomplete"`
+	RecheckIncompleteAt string `json:"recheck_incomplete_at,omitempty"`
 }
 
 // Syncer reconciles read and favorite state between MrRSS and Folo.
@@ -118,10 +123,29 @@ func (s *Syncer) Sync(ctx context.Context) (SyncResult, error) {
 
 	// Re-read a bounded slice of older mappings: their remote state can change
 	// long after publication, and no live window will ever include them again.
-	if rechecked, recheckErr := s.recheckRemote(ctx); recheckErr != nil {
+	if rechecked, incompleteAt, recheckErr := s.recheckRemote(ctx); recheckErr != nil {
 		log.Printf("folo sync: recheck mapped entries: %v", recheckErr)
+		result.RecheckIncomplete = true
+		result.RecheckIncompleteAt = incompleteAt
+		// Any failed confirmation must reach the existing truncated warning path;
+		// a transport or database error may not have a timestamp to attach.
+		if !result.Truncated {
+			result.Truncated = true
+		}
+		if incompleteAt != "" {
+			result.TruncatedAt = incompleteAt
+		}
 	} else {
 		result.Pulled += rechecked
+		if incompleteAt != "" {
+			result.RecheckIncomplete = true
+			result.RecheckIncompleteAt = incompleteAt
+			result.Truncated = true
+			if incompleteAt != "" {
+				result.TruncatedAt = incompleteAt
+			}
+			log.Printf("folo sync: could not confirm a mapped entry around %s within the bounded recheck window", incompleteAt)
+		}
 	}
 	if err != nil {
 		return result, err
@@ -281,6 +305,11 @@ type pullCursor struct {
 func (s *Syncer) pullRemote(ctx context.Context) (updated, matched, skipped int, next pullCursor, err error) {
 	since := s.lastSyncCursor()
 	backfill := s.pendingBackfill()
+	// Once a dense timestamp has been reported, do not spend the next pass
+	// repeatedly asking for that same boundary. A strict live bound leaves the
+	// budget for the older continuation while still accepting newer entries.
+	truncatedAt, _ := s.db.GetSetting(SyncTruncatedKey)
+	skipLiveBoundary := truncatedAt != "" && backfill != ""
 
 	seen := make(map[string]bool)
 	entries := make([]Entry, 0, syncPageSize)
@@ -293,14 +322,17 @@ func (s *Syncer) pullRemote(ctx context.Context) (updated, matched, skipped int,
 	newest, oldestLive := "", ""
 	liveCaughtUp, liveProgressed := false, true
 	liveTruncated, liveTruncatedAt := false, ""
-	boundaryShared := false
-	boundaryAt := ""
 	for pagesUsed < syncPageBudget {
 		params := EntryListParams{Limit: syncPageSize}
 		if pagesUsed == 0 {
 			params.NewerThan = shiftTime(liveFrom, -time.Millisecond)
+			if skipLiveBoundary {
+				params.NewerThan = liveFrom
+			}
 		} else if oldestLive != "" {
-			params.OlderThan = shiftTime(oldestLive, -time.Millisecond)
+			// Include the boundary itself and remove IDs already collected. A
+			// millisecond offset drops a legitimate sub-millisecond successor.
+			params.OlderThan = oldestLive
 		} else {
 			break
 		}
@@ -314,46 +346,35 @@ func (s *Syncer) pullRemote(ctx context.Context) (updated, matched, skipped int,
 		newest = later(newest, batchNewest)
 		oldestLive = earlier(oldestLive, batchOldest)
 		if len(batch) < syncPageSize {
-			// The walk ends here. If the page before ended on a publish time shared by
-			// several entries, the API cannot page inside that instant — but it can
-			// enumerate it, so ask for the band alone and pick up whatever the page cut
-			// before concluding that anything is missing.
-			if boundaryShared && boundaryAt != "" {
-				band, bandErr := s.client.ListEntries(ctx, EntryListParams{
-					Limit:     syncPageSize,
-					NewerThan: shiftTime(boundaryAt, -time.Millisecond),
-					OlderThan: shiftTime(boundaryAt, time.Millisecond),
-				})
-				if bandErr != nil {
-					return updated, matched, skipped, next,
-						fmt.Errorf("list Folo entries at %s: %w", boundaryAt, bandErr)
-				}
-				recovered, _, _ := appendEntries(seen, &entries, band)
-				skipped += recovered
-				// Only a band that fills a page on its own cannot be enumerated; that is
-				// the case the result has to report as incomplete.
-				if len(band) >= syncPageSize {
-					liveTruncated, liveTruncatedAt = true, boundaryAt
-				}
-			}
 			liveCaughtUp = true
 			break
 		}
-		// A full page ending on a repeated publish time may have left entries at
-		// that same time unlisted; the next request is what decides.
-		boundaryShared = countPublishedAt(batch, batchOldest) > 1
-		if boundaryShared {
-			boundaryAt = batchOldest
-		}
 		if added == 0 {
-			// A full page with nothing new means the cursor cannot move: the
-			// boundary timestamp holds more entries than one page and the API has
-			// no cursor to split it. Record the gap instead of looping on it.
+			// A full page with nothing new means the boundary timestamp holds at
+			// least one page of entries and the API has no ID cursor to split it.
+			// Record the gap, then make one bounded request strictly below the band
+			// so older, independently enumerable entries are not hidden behind it.
 			if oldestLive != "" {
 				liveTruncated, liveTruncatedAt = true, oldestLive
 			}
 			liveProgressed = false
-			break
+			if oldestLive == "" || pagesUsed >= syncPageBudget {
+				break
+			}
+			pastBand, pastErr := s.client.ListEntries(ctx, EntryListParams{
+				Limit:     syncPageSize,
+				OlderThan: shiftTime(oldestLive, -time.Nanosecond),
+			})
+			if pastErr != nil {
+				return updated, matched, skipped, next, fmt.Errorf("list Folo entries below %s: %w", oldestLive, pastErr)
+			}
+			pagesUsed++
+			added, _, pastOldest := appendEntries(seen, &entries, pastBand)
+			oldestLive = earlier(oldestLive, pastOldest)
+			if added == 0 || len(pastBand) < syncPageSize {
+				liveCaughtUp = true
+				break
+			}
 		}
 	}
 
@@ -361,14 +382,13 @@ func (s *Syncer) pullRemote(ctx context.Context) (updated, matched, skipped int,
 	backfillPages := 0
 	backfillDone, backfillProgressed := false, true
 	backfillTruncated, backfillTruncatedAt := false, ""
-	backfillBoundaryShared := false
 	for backfill != "" && pagesUsed < syncPageBudget {
 		params := EntryListParams{Limit: syncPageSize}
 		if backfillPages == 0 {
 			// Continue the gap from its top edge, moving downwards.
-			params.OlderThan = shiftTime(since, -time.Millisecond)
+			params.OlderThan = since
 		} else if oldestBackfill != "" {
-			params.OlderThan = shiftTime(oldestBackfill, -time.Millisecond)
+			params.OlderThan = oldestBackfill
 		} else {
 			break
 		}
@@ -382,19 +402,34 @@ func (s *Syncer) pullRemote(ctx context.Context) (updated, matched, skipped int,
 		added, _, batchOldest := appendEntries(seen, &entries, batch)
 		oldestBackfill = earlier(oldestBackfill, batchOldest)
 		if len(batch) < syncPageSize {
-			if len(batch) == 0 && backfillBoundaryShared {
-				backfillTruncated, backfillTruncatedAt = true, oldestBackfill
-			}
 			backfillDone = true
 			break
 		}
-		backfillBoundaryShared = countPublishedAt(batch, batchOldest) > 1
 		if added == 0 {
 			if oldestBackfill != "" {
 				backfillTruncated, backfillTruncatedAt = true, oldestBackfill
 			}
 			backfillProgressed = false
-			break
+			if oldestBackfill == "" || pagesUsed >= syncPageBudget {
+				break
+			}
+			pastBand, pastErr := s.client.ListEntries(ctx, EntryListParams{
+				Limit:     syncPageSize,
+				OlderThan: shiftTime(oldestBackfill, -time.Nanosecond),
+			})
+			if pastErr != nil {
+				return updated, matched, skipped, next, fmt.Errorf("list Folo entries below %s: %w", oldestBackfill, pastErr)
+			}
+			pagesUsed++
+			added, _, pastOldest := appendEntries(seen, &entries, pastBand)
+			oldestBackfill = earlier(oldestBackfill, pastOldest)
+			if added > 0 {
+				backfillProgressed = true
+			}
+			if added == 0 || len(pastBand) < syncPageSize {
+				backfillDone = true
+				break
+			}
 		}
 		if oldestBackfill != "" && !timestampAfter(oldestBackfill, backfill) {
 			backfillDone = true
@@ -408,6 +443,15 @@ func (s *Syncer) pullRemote(ctx context.Context) (updated, matched, skipped int,
 		// past it keeps the same page from being re-read on every sync, and the
 		// truncation is reported so the gap is never counted as a complete sync.
 		next.cursor = oldestLive
+		if !backfillDone {
+			next.backfill = backfill
+		}
+		if backfill == "" {
+			// The first truncated live walk has no pending backfill yet. Carry its
+			// original lower bound forward so a later pass can resume below the
+			// bounded recovery page instead of restarting at the top forever.
+			next.backfill = liveFrom
+		}
 		next.truncated = true
 		next.truncatedAt = liveTruncatedAt
 	case backfill != "":
@@ -493,6 +537,19 @@ func (s *Syncer) pullRemote(ctx context.Context) (updated, matched, skipped int,
 // applyEntry reconciles one matched entry and returns how many local fields it
 // changed. A local change made since the last snapshot wins over the remote one.
 func (s *Syncer) applyEntry(articleID int64, entry Entry) (int, error) {
+	// A live pull can encounter a local change that is waiting in the push
+	// window. Updating its snapshot must not move that row behind the next 500
+	// mappings before pushLocal gets a chance to send it.
+	return s.applyEntryWithRotation(articleID, entry, false)
+}
+
+// Rechecks update the agreement snapshot but do not rotate push ordering: a
+// pending local change must stay inside the next bounded push batch.
+func (s *Syncer) applyRecheckedEntry(articleID int64, entry Entry) (int, error) {
+	return s.applyEntryWithRotation(articleID, entry, false)
+}
+
+func (s *Syncer) applyEntryWithRotation(articleID int64, entry Entry, rotate bool) (int, error) {
 	_, snapshotRead, snapshotFav, mapped, err := s.db.GetFoloMapping(articleID)
 	if err != nil {
 		return 0, fmt.Errorf("read Folo mapping: %w", err)
@@ -559,8 +616,14 @@ func (s *Syncer) applyEntry(articleID int64, entry Entry) (int, error) {
 	if !localFavPending {
 		nextFav = entry.Collected
 	}
-	if err := s.db.UpdateFoloSnapshot(articleID, nextRead, nextFav); err != nil {
-		return 0, fmt.Errorf("advance Folo snapshot: %w", err)
+	var snapshotErr error
+	if rotate {
+		snapshotErr = s.db.UpdateFoloSnapshot(articleID, nextRead, nextFav)
+	} else {
+		snapshotErr = s.db.UpdateFoloSnapshotPreserveOrder(articleID, nextRead, nextFav)
+	}
+	if snapshotErr != nil {
+		return 0, fmt.Errorf("advance Folo snapshot: %w", snapshotErr)
 	}
 	return changed, nil
 }
@@ -585,11 +648,11 @@ func (s *Syncer) recheckCursor() int64 {
 // published — never enters a window again. The entry API can only be queried by
 // publish time, so each mapping is re-read through a narrow window around its own
 // timestamp, which returns both its read flag and its collection state.
-func (s *Syncer) recheckRemote(ctx context.Context) (int, error) {
+func (s *Syncer) recheckRemote(ctx context.Context) (int, string, error) {
 	after := s.recheckCursor()
 	rows, err := s.db.ListFoloMappingsForRecheck(after, syncRecheckLimit)
 	if err != nil {
-		return 0, fmt.Errorf("list mappings for recheck: %w", err)
+		return 0, "", fmt.Errorf("list mappings for recheck: %w", err)
 	}
 	if len(rows) == 0 {
 		// A full page followed by an empty one means the sweep reached the end.
@@ -601,10 +664,11 @@ func (s *Syncer) recheckRemote(ctx context.Context) (int, error) {
 				log.Printf("folo sync: rewind recheck cursor: %v", err)
 			}
 		}
-		return 0, nil
+		return 0, "", nil
 	}
 
 	changed := 0
+	incompleteAt := ""
 	for _, item := range rows {
 		// The entry's own publish time is the only window that reliably contains it:
 		// matching is by URL, so the article's time can differ. Mappings created
@@ -615,27 +679,29 @@ func (s *Syncer) recheckRemote(ctx context.Context) (int, error) {
 			at, slack, limit = item.PublishedAt, syncRecheckFallbackSlack, syncRecheckFallbackWindow
 		}
 		if at == "" {
+			if incompleteAt == "" {
+				incompleteAt = item.EntryID
+			}
 			continue
 		}
-		batch, listErr := s.client.ListEntries(ctx, EntryListParams{
-			Limit:     limit,
-			NewerThan: shiftTime(at, -slack),
-			OlderThan: shiftTime(at, slack),
-		})
+		entry, found, listErr := s.findRecheckEntry(ctx, item.EntryID, at, slack, limit)
 		if listErr != nil {
-			return changed, fmt.Errorf("recheck Folo entry %s: %w", item.EntryID, listErr)
-		}
-		for _, entry := range batch {
-			if entry.ID != item.EntryID {
-				continue
+			if incompleteAt == "" {
+				incompleteAt = at
 			}
-			applied, applyErr := s.applyEntry(item.ArticleID, entry)
-			if applyErr != nil {
-				return changed, applyErr
-			}
-			changed += applied
-			break
+			return changed, incompleteAt, listErr
 		}
+		if !found {
+			if incompleteAt == "" {
+				incompleteAt = at
+			}
+			continue
+		}
+		applied, applyErr := s.applyRecheckedEntry(item.ArticleID, entry)
+		if applyErr != nil {
+			return changed, incompleteAt, applyErr
+		}
+		changed += applied
 	}
 
 	next := rows[len(rows)-1].ArticleID
@@ -646,7 +712,7 @@ func (s *Syncer) recheckRemote(ctx context.Context) (int, error) {
 	if err := s.db.SetSetting(SyncRecheckKey, strconv.FormatInt(next, 10)); err != nil {
 		log.Printf("folo sync: record recheck cursor: %v", err)
 	}
-	return changed, nil
+	return changed, incompleteAt, nil
 }
 
 // lastSyncCursor returns where the previous pull stopped.

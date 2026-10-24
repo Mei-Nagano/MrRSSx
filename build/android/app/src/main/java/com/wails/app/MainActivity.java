@@ -67,9 +67,16 @@ public class MainActivity extends AppCompatActivity {
     private static final String WAILS_SCHEME = "http";
     private static final String WAILS_HOST = "wails.localhost";
     private static final int FILE_PICKER_REQUEST = 7001;
+    private final String bridgeCapability = BridgeGuard.newCapability();
 
     private WebView webView;
     private WailsBridge bridge;
+    private WailsJSBridge jsBridge;
+    // addJavascriptInterface is exposed to a newly loaded document only. Keep
+    // this bit in sync with removeJavascriptInterface so a trusted redirect can
+    // never continue with a bridge-less page after an external navigation.
+    private boolean bridgeAttached;
+    private boolean applicationRestoreScheduled;
     // Battery: system-event receivers are registered only while the activity is
     // in the foreground (onStart) and torn down in onStop, so background battery/
     // network/screen broadcasts don't wake the app.
@@ -130,6 +137,9 @@ public class MainActivity extends AppCompatActivity {
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(false);
         settings.setMediaPlaybackRequiresUserGesture(false);
+        // window.open/target=_blank must not create an in-WebView top-level
+        // document that could inherit the native interface.
+        settings.setSupportMultipleWindows(false);
         // Belt and braces for the scheme choice above: if the origin ever moves
         // back to https, allow images and iframes from plain-http feeds instead
         // of the WebView's block-everything default.
@@ -145,7 +155,7 @@ public class MainActivity extends AppCompatActivity {
         assetLoader = new WebViewAssetLoader.Builder()
                 .setDomain(WAILS_HOST)
                 .setHttpAllowed(true)
-                .addPathHandler("/", new WailsPathHandler(bridge))
+                .addPathHandler("/", new WailsPathHandler(bridge, bridgeCapability))
                 .build();
 
         // Set up WebView client to intercept requests
@@ -231,6 +241,51 @@ public class MainActivity extends AppCompatActivity {
             }
 
             @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                if (request.isForMainFrame() && !isTrustedAppUrl(request.getUrl())) {
+                    openExternally(request.getUrl());
+                    return true;
+                }
+                return false;
+            }
+
+            @SuppressWarnings("deprecation")
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                Uri target = parseNavigationUrl(url);
+                if (isTrustedAppUrl(target)) {
+                    return false;
+                }
+                // API 23 and earlier do not expose a main-frame bit on this
+                // callback. Let onPageStarted handle the top-level fallback so
+                // external article frames are not opened in the system browser.
+                // That callback removes the bridge before stopping the load and
+                // restores the app document below.
+                return false;
+            }
+
+            @Override
+            public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                super.onPageStarted(view, url, favicon);
+                Uri page = parseNavigationUrl(url);
+                if (!isTrustedAppUrl(page)) {
+                    // This is a second line of defence for redirects or platform
+                    // paths that do not invoke shouldOverrideUrlLoading.
+                    detachBridgeAndOpenExternally(view, page);
+                    view.stopLoading();
+                } else if (!bridgeAttached) {
+                    // A trusted redirect may race the posted recovery below. The
+                    // interface cannot appear in this document after addJavascriptInterface
+                    // alone, so stop it and load the app again after reattaching.
+                    attachBridge(view);
+                    view.stopLoading();
+                    if (!applicationRestoreScheduled) {
+                        loadApplication(view);
+                    }
+                }
+            }
+
+            @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 if (DEBUG) Log.d(TAG, "Page loaded: " + url);
@@ -242,11 +297,12 @@ public class MainActivity extends AppCompatActivity {
         });
 
         // Add JavaScript interface for Go communication
-        webView.addJavascriptInterface(new WailsJSBridge(bridge, webView), "wails");
+        jsBridge = new WailsJSBridge(bridge, webView, bridgeCapability);
+        attachBridge(webView);
 
         // The interface is injected into every frame, so the frames that are not the
         // app document drop it before their own scripts run.
-        BridgeGuard.install(webView);
+        BridgeGuard.install(webView, bridgeCapability);
 
         // A page-level <input type="file"> has no picker inside the WebView; without
         // this callback the tap does nothing at all (rule import, backup restore).
@@ -275,10 +331,76 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private boolean isTrustedAppUrl(Uri uri) {
+        return uri != null
+                && WAILS_SCHEME.equalsIgnoreCase(uri.getScheme())
+                && WAILS_HOST.equalsIgnoreCase(uri.getHost())
+                && uri.getPort() == -1
+                && BridgeGuard.isTrustedAppPath(uri.getPath());
+    }
+
+    @Nullable
+    private Uri parseNavigationUrl(String url) {
+        if (url == null) {
+            return null;
+        }
+        try {
+            return Uri.parse(url);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Invalid navigation URL", e);
+            return null;
+        }
+    }
+
+    private void detachBridgeAndOpenExternally(WebView view, Uri uri) {
+        view.removeJavascriptInterface("wails");
+        bridgeAttached = false;
+        openExternally(uri);
+        // Keep the WebView on the supported app document after a redirect that
+        // escaped the normal navigation callback; the external page is already
+        // handed to the system browser above.
+        if (!applicationRestoreScheduled) {
+            applicationRestoreScheduled = true;
+            view.post(() -> {
+                applicationRestoreScheduled = false;
+                loadApplication(view);
+            });
+        }
+    }
+
+    private void attachBridge(WebView view) {
+        if (jsBridge != null) {
+            view.addJavascriptInterface(jsBridge, "wails");
+            bridgeAttached = true;
+        }
+    }
+
+    private void openExternally(Uri uri) {
+        if (uri == null || uri.getScheme() == null
+                || (!"http".equalsIgnoreCase(uri.getScheme())
+                && !"https".equalsIgnoreCase(uri.getScheme()))) {
+            Log.w(TAG, "Blocked non-web top-level navigation: " + uri);
+            return;
+        }
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, uri));
+        } catch (Exception e) {
+            Log.w(TAG, "No external handler for " + uri, e);
+        }
+    }
+
     private void loadApplication() {
+        loadApplication(webView);
+    }
+
+    private void loadApplication(WebView view) {
+        // addJavascriptInterface takes effect on the next page load. Always
+        // attach immediately before a recovery load, including API 21-23 where
+        // the request navigation callback is unavailable.
+        attachBridge(view);
         String url = WAILS_SCHEME + "://" + WAILS_HOST + "/";
         if (DEBUG) Log.d(TAG, "Loading URL: " + url);
-        webView.loadUrl(url);
+        view.loadUrl(url);
     }
 
     /**
@@ -421,11 +543,12 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * Answer an /api/ request that arrived as a subresource rather than through
-     * the fetch shim. The Go handler needs the query string, and the response has
-     * no file extension to read a MIME type from, so the type is sniffed from the
-     * bytes. A failed request returns 404 instead of null: returning null lets the
-     * WebView fall back to a real network request for wails.localhost, which
-     * surfaces as ERR_CONNECTION_REFUSED instead of the actual error.
+     * the fetch shim. The Go handler needs the query string, and webpage resources
+     * return a small metadata envelope so upstream Content-Type survives the
+     * byte-only native asset call. A failed request returns 404 instead of null:
+     * returning null lets the WebView fall back to a real network request for
+     * wails.localhost, which surfaces as ERR_CONNECTION_REFUSED instead of the
+     * actual error.
      *
      * This channel carries only the method and path — nativeServeAsset ignores its
      * third argument and serveAssetForAndroid takes no body — so it is read-only by
@@ -436,12 +559,14 @@ public class MainActivity extends AppCompatActivity {
     @Nullable
     private WebResourceResponse serveApiSubresource(String fullPath, WebResourceRequest request) {
         byte[] data;
+        boolean wantsMetadata = fullPath.startsWith("/api/webpage/resource?");
+        String requestPath = wantsMetadata ? withResourceMetadata(fullPath) : fullPath;
         try {
             // The "{}" argument is a placeholder nativeServeAsset does not read;
             // see the method note above.
-            data = bridge.serveAsset(fullPath, request.getMethod(), "{}");
+            data = bridge.serveAsset(requestPath, request.getMethod(), "{}");
         } catch (Exception e) {
-            Log.e(TAG, "serveApiSubresource failed for " + fullPath, e);
+            Log.e(TAG, "serveApiSubresource failed for " + requestPath, e);
             data = null;
         }
 
@@ -453,7 +578,23 @@ public class MainActivity extends AppCompatActivity {
                     new java.util.HashMap<>(), new java.io.ByteArrayInputStream(new byte[0]));
         }
 
-        String mimeType = sniffMimeType(data, fullPath);
+        ResourceMetadata metadata = wantsMetadata ? ResourceMetadata.decode(data) : null;
+        if (wantsMetadata && metadata == null) {
+            // Keep compatibility with a native library built before the metadata
+            // envelope: retry the original byte-only response before sniffing.
+            try {
+                byte[] legacyData = bridge.serveAsset(fullPath, request.getMethod(), "{}");
+                if (legacyData != null && legacyData.length > 0) {
+                    data = legacyData;
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "legacy webpage resource fallback failed", e);
+            }
+        }
+        byte[] body = metadata != null ? metadata.body : data;
+        String mimeType = metadata != null && metadata.mimeType != null
+                ? metadata.mimeType : sniffMimeType(body, fullPath);
+        data = body;
         java.util.Map<String, String> headers = new java.util.HashMap<>();
         // The original-page iframe is sandboxed without allow-same-origin, so it runs
         // in an opaque origin and needs CORS to read its own proxied assets (fonts and
@@ -474,9 +615,14 @@ public class MainActivity extends AppCompatActivity {
                 new java.io.ByteArrayInputStream(data));
     }
 
+    private String withResourceMetadata(String path) {
+        return path + (path.indexOf('?') >= 0 ? "&" : "?") + "meta=1";
+    }
+
     /**
-     * Guess a MIME type from the payload. {@code URLConnection.guessContentType-
-     * FromStream} covers the common feed assets (HTML, PNG, JPEG, GIF, PDF).
+     * Guess a MIME type when the Go metadata envelope is unavailable. {@code
+     * URLConnection.guessContentTypeFromStream} covers common feed assets (HTML,
+     * PNG, JPEG, GIF, PDF).
      *
      * Stylesheets, module scripts and fonts carry no magic bytes, and answering
      * text/html for them makes the WebView refuse to apply them, so the original

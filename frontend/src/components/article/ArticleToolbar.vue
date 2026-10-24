@@ -12,6 +12,7 @@ import { useSiYuanExport } from '@/composables/article/useSiYuanExport';
 import { PhArrowLeft, PhDotsThree, PhSlidersHorizontal, PhX } from '@phosphor-icons/vue';
 import type { Article } from '@/types/models';
 import { copyArticleLink, copyArticleTitle } from '@/utils/clipboard';
+import { getToolbarMenuPosition } from './articleToolbarMenuPosition';
 
 const { t } = useI18n();
 const { settings, fetchSettings } = useSettings();
@@ -109,19 +110,29 @@ async function openMenu() {
   await nextTick();
   const anchor = menuTrigger.value?.getBoundingClientRect();
   if (!anchor) return;
-  const top = anchor.bottom + 6;
   // On the phone layout the bottom bar is fixed over the article, so the menu has
-  // to stop above it instead of running to the viewport edge underneath it. Its
-  // height is measured (56px plus the safe-area inset) rather than copied here as
-  // a second constant that could drift.
+  // to stop above its real top instead of running underneath it. Its rectangle
+  // includes the safe-area inset, so the usable viewport follows the platform's
+  // actual layout rather than a second copy of the bar height.
   const bottomBar = isPhone.value
     ? document.querySelector<HTMLElement>('.smart-activity-bar')
     : null;
-  const reservedBottom = bottomBar?.offsetHeight ?? 0;
+  const viewportHeight = window.innerHeight;
+  const bottomBarRect = bottomBar?.getBoundingClientRect();
+  const measuredBarTop = bottomBarRect?.top ?? 0;
+  const bottomBarTop =
+    measuredBarTop > 0 && measuredBarTop < viewportHeight
+      ? measuredBarTop
+      : viewportHeight - (bottomBar?.offsetHeight ?? 0);
+  const position = getToolbarMenuPosition(
+    { top: anchor.top, bottom: anchor.bottom, right: anchor.right },
+    { width: window.innerWidth, height: viewportHeight, bottom: bottomBarTop },
+    menuPanel.value?.scrollHeight
+  );
   menuPosition.value = {
-    top: `${Math.round(top)}px`,
-    right: `${Math.round(Math.max(8, window.innerWidth - anchor.right))}px`,
-    maxHeight: `${Math.max(160, Math.round(window.innerHeight - top - 8 - reservedBottom))}px`,
+    top: `${Math.round(position.top)}px`,
+    right: `${Math.round(position.right)}px`,
+    maxHeight: `${position.maxHeight}px`,
   };
   menuPanel.value?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
 }

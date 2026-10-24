@@ -53,6 +53,9 @@ public class ResourceMimeTest {
     public void acceptsAValidTypeHint() {
         assertEquals("text/css", ResourceMime.fromTypeHint("text/css"));
         assertEquals("text/javascript", ResourceMime.fromTypeHint("text/javascript"));
+        assertEquals("text/javascript",
+                ResourceMime.fromContentType("text/javascript; charset=utf-8"));
+        assertEquals("application/wasm", ResourceMime.fromContentType(" application/wasm "));
     }
 
     @Test
@@ -62,5 +65,35 @@ public class ResourceMimeTest {
         assertNull(ResourceMime.fromTypeHint("  "));
         assertNull(ResourceMime.fromTypeHint("html"));
         assertNull(ResourceMime.fromTypeHint("text/css<script>"));
+        assertNull(ResourceMime.fromContentType("not-a-content-type"));
+    }
+
+    @Test
+    public void decodesUpstreamTypeAndExtensionlessModuleBody() {
+        byte[] payload = ("{\"content_type\":\"text/javascript; charset=utf-8\","
+                + "\"body\":\"ZXhwb3J0IGNvbnN0IGFuc3dlciA9IDQyOw==\"}")
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        ResourceMetadata metadata = ResourceMetadata.decode(payload);
+
+        assertEquals("text/javascript", metadata.mimeType);
+        assertEquals("export const answer = 42;",
+                new String(metadata.body, java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    @Test
+    public void fallsBackForLegacyByteOnlyResponses() {
+        assertNull(ResourceMetadata.decode("export const answer = 42;"
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+    }
+
+    @Test
+    public void keepsBodyWhenUpstreamTypeIsUnknownForByteFallback() {
+        byte[] payload = ("{\"content_type\":\"not-a-type\","
+                + "\"body\":\"aGVsbG8=\"}")
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        ResourceMetadata metadata = ResourceMetadata.decode(payload);
+
+        assertNull(metadata.mimeType);
+        assertEquals("hello", new String(metadata.body, java.nio.charset.StandardCharsets.UTF_8));
     }
 }

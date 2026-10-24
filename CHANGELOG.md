@@ -7,6 +7,25 @@ All notable changes to MrRSS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.41] - 2026-10-24
+
+### Fixed
+
+- Restrict the Android native bridge to the trusted application document with a per-WebView capability, protect bootstrap HTML from cross-origin reads, and recover the reader after external navigation.
+- Preserve resource MIME types through the Android proxy, including module scripts without filename extensions.
+- Fit the article action menu above bottom navigation in short windows while preserving scrolling and back navigation.
+- Recheck older Folo entries in dense publication-time groups without moving pending local changes out of the push queue.
+- Preserve Folo pagination boundaries, sub-millisecond entries and backfill progress; report unenumerable groups explicitly and count recovered entries once.
+
+### Changed
+
+- Publish Android and desktop assets to the same selected release tag and build assets from the dispatch commit.
+
+### Validation and known limitations
+
+- Local verification passed: 346 frontend tests, 18 Android JVM tests, 14 browser regression scenarios, one browser CORS scenario, the uncached Go internal test suite, and Windows/server/dual-ABI Android builds.
+- Physical devices, emulators and real Folo accounts were not used. Android lint retains two existing LocationManager permission diagnostics. APKs use the project's debug signing configuration unless a release keystore is provided.
+
 ## [1.3.40] - 2026-10-08
 
 ### Added
