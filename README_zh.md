@@ -14,6 +14,26 @@
 [![Wails](https://img.shields.io/badge/Wails-v3%20alpha-red)](https://wails.io/)
 [![Vue.js](https://img.shields.io/badge/Vue.js-3.5+-4FC08D?logo=vue.js)](https://vuejs.org/)
 
+> **这是自用分支，不是 MrRSS 的通用发行版。** 只保留我自己需要的改动：**Folo 同步**和**安卓客户端**。
+> 上游：[DevXDojo/MrRSS](https://github.com/DevXDojo/MrRSS)。
+
+## 这个分支改了什么
+
+- **Folo 同步。** 已读与收藏双向同步，并额外有一轮复查：文章滑出拉取窗口之后在 Folo 上做的改动
+  仍然能被发现。遇到上游接口无法在某个发布时间内部翻页的情况，会如实报告"部分完成"，而不是假装成功。
+- **安卓客户端。** 同一套前端装进 WebView 外壳：手机布局、返回键一次只关一层（弹层 → 文章 → 列表），
+  图库有独立的图片查看器。
+- **手机端插件裁剪。** 手机设置里只列 RSS 相关的集成：FreshRSS、Miniflux、Folo、RSSHub。
+  Obsidian、Notion、SiYuan、Zotero 这类需要桌面文件系统或本地服务的集成留在桌面端，不在手机上
+  摆一个用不了的入口。
+
+<p>
+  <img src="imgs/mobile/mobile-list.png" width="200" alt="手机端文章列表" />
+  <img src="imgs/mobile/mobile-article.png" width="200" alt="手机端文章阅读" />
+  <img src="imgs/mobile/mobile-gallery.png" width="200" alt="手机端图库" />
+  <img src="imgs/mobile/mobile-plugins.png" width="200" alt="手机端插件设置" />
+</p>
+
 ## ✨ 功能特性
 
 - 🌐 **自动翻译与摘要**: 自动翻译文章标题与正文，并生成简洁的内容摘要，助你快速获取信息

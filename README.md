@@ -14,6 +14,31 @@
 [![Wails](https://img.shields.io/badge/Wails-v3%20alpha-red)](https://wails.io/)
 [![Vue.js](https://img.shields.io/badge/Vue.js-3.5+-4FC08D?logo=vue.js)](https://vuejs.org/)
 
+> **This is a personal-use fork, not a general distribution of MrRSS.** It keeps the
+> changes needed for my own reading: **Folo sync** and an **Android app**. Upstream:
+> [DevXDojo/MrRSS](https://github.com/DevXDojo/MrRSS).
+
+## What this fork changes
+
+- **Folo sync.** Two-way sync of read and favourite state, plus a separate recheck
+  pass so a change made on Folo after an article scrolled out of the pull window is
+  still picked up. A publish time the entry API cannot page inside is reported as a
+  partial sync instead of a success.
+- **Android app.** The same frontend inside a WebView shell: phone layout, a back
+  key that closes one layer at a time (popover, then article, then list), and a
+  gallery with its own image viewer.
+- **Phone-scoped plugins.** The phone settings page lists only the RSS-side
+  integrations: FreshRSS, Miniflux, Folo and RSSHub. Note-app integrations such as
+  Obsidian, Notion, SiYuan and Zotero need a desktop filesystem or a local service,
+  so they stay on desktop rather than showing up as dead ends.
+
+<p>
+  <img src="imgs/mobile/mobile-list.png" width="200" alt="Article list on a phone" />
+  <img src="imgs/mobile/mobile-article.png" width="200" alt="Article view on a phone" />
+  <img src="imgs/mobile/mobile-gallery.png" width="200" alt="Gallery on a phone" />
+  <img src="imgs/mobile/mobile-plugins.png" width="200" alt="Plugin settings on a phone" />
+</p>
+
 ## ✨ Features
 
 - 🌐 **Auto-Translation & Summarization**: Automatically translate article titles and content, and generate concise summaries to help you get information quickly
