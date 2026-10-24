@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"MrRSS/internal/database"
@@ -23,10 +24,27 @@ const (
 	// SyncBackfillKey marks a lower bound that a pass ran out of budget before
 	// reaching, so the next pass continues downwards instead of skipping it.
 	SyncBackfillKey = "folo_sync_backfill"
+	// SyncTruncatedKey remembers a publish time whose entries could not all be
+	// listed. The entry API has no cursor, so the gap cannot be retried; keeping
+	// it here makes every later pass report incomplete coverage instead of
+	// quietly counting the missing entries as synced.
+	SyncTruncatedKey = "folo_sync_truncated_at"
+	// SyncRecheckKey is the article_id watermark for re-reading already-mapped
+	// entries. It is deliberately independent of the push window: a recheck must
+	// not stamp updated_at, or it would push pending local changes further back.
+	SyncRecheckKey = "folo_sync_recheck_id"
 
 	syncMappedLimit = 500
 	syncPageSize    = 100
 	syncPageBudget  = 5
+	// syncRecheckLimit bounds how many mapped entries are re-read per pass, and
+	// syncRecheckWindow the page size for one narrow time window.
+	syncRecheckLimit  = 8
+	syncRecheckWindow = 10
+	// Mappings created before the remote publish time was stored fall back to the
+	// article's time, which can be hours or days off, so that window is wider.
+	syncRecheckFallbackSlack  = 24 * time.Hour
+	syncRecheckFallbackWindow = 50
 	// syncFavoriteLimit bounds the extra pass that catches entries saved to the
 	// collection but published before the timeline cursor.
 	syncFavoriteLimit = 100
@@ -43,6 +61,12 @@ type SyncResult struct {
 	Skipped  int    `json:"skipped"`
 	Mapped   int    `json:"mapped"`
 	LastSync string `json:"last_sync_time"`
+	// Truncated reports that one publish timestamp held more entries than a page
+	// and the upstream API offers no cursor to page inside it, so this pass did
+	// not cover everything. The gap is surfaced instead of being reported as a
+	// complete sync.
+	Truncated   bool   `json:"truncated"`
+	TruncatedAt string `json:"truncated_at,omitempty"`
 }
 
 // Syncer reconciles read and favorite state between MrRSS and Folo.
@@ -73,6 +97,32 @@ func (s *Syncer) Sync(ctx context.Context) (SyncResult, error) {
 	result.Pulled = pulled
 	result.Matched = matched
 	result.Skipped = skipped
+	// A gap found here is sticky: the API cannot page inside one publish time, so
+	// those entries stay missing on later passes. Keeping the marker makes every
+	// pass report incomplete coverage instead of implying a complete sync.
+	truncatedAt, truncatedErr := s.db.GetSetting(SyncTruncatedKey)
+	if truncatedErr != nil {
+		log.Printf("folo sync: read truncated coverage: %v", truncatedErr)
+	}
+	if next.truncated && next.truncatedAt != "" {
+		truncatedAt = next.truncatedAt
+		if err := s.db.SetSetting(SyncTruncatedKey, truncatedAt); err != nil {
+			log.Printf("folo sync: record truncated coverage: %v", err)
+		}
+	}
+	result.Truncated = truncatedAt != ""
+	result.TruncatedAt = truncatedAt
+	if result.Truncated {
+		log.Printf("folo sync: coverage stops at %s: the upstream API cannot page inside one publish time", truncatedAt)
+	}
+
+	// Re-read a bounded slice of older mappings: their remote state can change
+	// long after publication, and no live window will ever include them again.
+	if rechecked, recheckErr := s.recheckRemote(ctx); recheckErr != nil {
+		log.Printf("folo sync: recheck mapped entries: %v", recheckErr)
+	} else {
+		result.Pulled += rechecked
+	}
 	if err != nil {
 		return result, err
 	}
@@ -176,6 +226,12 @@ func (s *Syncer) pushLocal(ctx context.Context) (int, error) {
 		readChanged := item.LocalRead != item.SnapshotRead
 		favChanged := item.LocalFav != item.SnapshotFav
 		if !readChanged && !favChanged {
+			// Nothing to push, but the row still has to rotate: the batch is the
+			// oldest mappings, so a row that never gets stamped keeps its place at
+			// the front and a pending change behind it is never reached.
+			if err := s.db.UpdateFoloSnapshot(item.ArticleID, item.SnapshotRead, item.SnapshotFav); err != nil {
+				log.Printf("folo sync: rotate mapping %d: %v", item.ArticleID, err)
+			}
 			continue
 		}
 		// Only advance a dimension that actually reached Folo; otherwise the change
@@ -205,6 +261,13 @@ type pullCursor struct {
 	top string
 	// backfill is a lower bound this pass ran out of budget before reaching.
 	backfill string
+	// truncated reports that a page boundary fell inside a single publish time.
+	// The entry API only takes publishedBefore/publishedAfter bounds, so a
+	// timestamp holding more entries than one page cannot be split; the gap is
+	// recorded rather than reported as complete coverage or retried forever.
+	truncated bool
+	// truncatedAt is the timestamp whose remaining entries could not be listed.
+	truncatedAt string
 }
 
 // pullRemote applies Folo state to local articles. It returns the number of
@@ -229,6 +292,9 @@ func (s *Syncer) pullRemote(ctx context.Context) (updated, matched, skipped int,
 	}
 	newest, oldestLive := "", ""
 	liveCaughtUp, liveProgressed := false, true
+	liveTruncated, liveTruncatedAt := false, ""
+	boundaryShared := false
+	boundaryAt := ""
 	for pagesUsed < syncPageBudget {
 		params := EntryListParams{Limit: syncPageSize}
 		if pagesUsed == 0 {
@@ -248,10 +314,44 @@ func (s *Syncer) pullRemote(ctx context.Context) (updated, matched, skipped int,
 		newest = later(newest, batchNewest)
 		oldestLive = earlier(oldestLive, batchOldest)
 		if len(batch) < syncPageSize {
+			// The walk ends here. If the page before ended on a publish time shared by
+			// several entries, the API cannot page inside that instant — but it can
+			// enumerate it, so ask for the band alone and pick up whatever the page cut
+			// before concluding that anything is missing.
+			if boundaryShared && boundaryAt != "" {
+				band, bandErr := s.client.ListEntries(ctx, EntryListParams{
+					Limit:     syncPageSize,
+					NewerThan: shiftTime(boundaryAt, -time.Millisecond),
+					OlderThan: shiftTime(boundaryAt, time.Millisecond),
+				})
+				if bandErr != nil {
+					return updated, matched, skipped, next,
+						fmt.Errorf("list Folo entries at %s: %w", boundaryAt, bandErr)
+				}
+				recovered, _, _ := appendEntries(seen, &entries, band)
+				skipped += recovered
+				// Only a band that fills a page on its own cannot be enumerated; that is
+				// the case the result has to report as incomplete.
+				if len(band) >= syncPageSize {
+					liveTruncated, liveTruncatedAt = true, boundaryAt
+				}
+			}
 			liveCaughtUp = true
 			break
 		}
+		// A full page ending on a repeated publish time may have left entries at
+		// that same time unlisted; the next request is what decides.
+		boundaryShared = countPublishedAt(batch, batchOldest) > 1
+		if boundaryShared {
+			boundaryAt = batchOldest
+		}
 		if added == 0 {
+			// A full page with nothing new means the cursor cannot move: the
+			// boundary timestamp holds more entries than one page and the API has
+			// no cursor to split it. Record the gap instead of looping on it.
+			if oldestLive != "" {
+				liveTruncated, liveTruncatedAt = true, oldestLive
+			}
 			liveProgressed = false
 			break
 		}
@@ -260,6 +360,8 @@ func (s *Syncer) pullRemote(ctx context.Context) (updated, matched, skipped int,
 	oldestBackfill := ""
 	backfillPages := 0
 	backfillDone, backfillProgressed := false, true
+	backfillTruncated, backfillTruncatedAt := false, ""
+	backfillBoundaryShared := false
 	for backfill != "" && pagesUsed < syncPageBudget {
 		params := EntryListParams{Limit: syncPageSize}
 		if backfillPages == 0 {
@@ -280,10 +382,17 @@ func (s *Syncer) pullRemote(ctx context.Context) (updated, matched, skipped int,
 		added, _, batchOldest := appendEntries(seen, &entries, batch)
 		oldestBackfill = earlier(oldestBackfill, batchOldest)
 		if len(batch) < syncPageSize {
+			if len(batch) == 0 && backfillBoundaryShared {
+				backfillTruncated, backfillTruncatedAt = true, oldestBackfill
+			}
 			backfillDone = true
 			break
 		}
+		backfillBoundaryShared = countPublishedAt(batch, batchOldest) > 1
 		if added == 0 {
+			if oldestBackfill != "" {
+				backfillTruncated, backfillTruncatedAt = true, oldestBackfill
+			}
 			backfillProgressed = false
 			break
 		}
@@ -294,6 +403,13 @@ func (s *Syncer) pullRemote(ctx context.Context) (updated, matched, skipped int,
 	}
 
 	switch {
+	case liveTruncated && oldestLive != "":
+		// Coverage stops at a timestamp the API cannot split. Advancing the cursor
+		// past it keeps the same page from being re-read on every sync, and the
+		// truncation is reported so the gap is never counted as a complete sync.
+		next.cursor = oldestLive
+		next.truncated = true
+		next.truncatedAt = liveTruncatedAt
 	case backfill != "":
 		switch {
 		case backfillDone:
@@ -305,6 +421,10 @@ func (s *Syncer) pullRemote(ctx context.Context) (updated, matched, skipped int,
 		default:
 			next.cursor = since
 			next.backfill = backfill
+		}
+		if backfillTruncated {
+			next.truncated = true
+			next.truncatedAt = backfillTruncatedAt
 		}
 	case liveCaughtUp:
 		if newest != "" {
@@ -378,10 +498,17 @@ func (s *Syncer) applyEntry(articleID int64, entry Entry) (int, error) {
 		return 0, fmt.Errorf("read Folo mapping: %w", err)
 	}
 
+	// Existing mappings also need the entry's own publish time: without it a later
+	// recheck aims at the article's time, which is not where the entry lives.
+	if mapped {
+		if err := s.db.SetFoloEntryPublishedAt(articleID, entry.PublishedAt); err != nil {
+			log.Printf("folo sync: record entry publish time: %v", err)
+		}
+	}
 	if !mapped {
 		// The snapshot keeps Folo's value on purpose: local state that differs is
 		// then pushed in the same pass instead of being silently cleared.
-		if err := s.db.UpsertFoloEntry(articleID, entry.ID, entry.URL, entry.Read, entry.Collected); err != nil {
+		if err := s.db.UpsertFoloEntry(articleID, entry.ID, entry.URL, entry.PublishedAt, entry.Read, entry.Collected); err != nil {
 			return 0, fmt.Errorf("store Folo mapping: %w", err)
 		}
 		changed := 0
@@ -434,6 +561,90 @@ func (s *Syncer) applyEntry(articleID int64, entry Entry) (int, error) {
 	}
 	if err := s.db.UpdateFoloSnapshot(articleID, nextRead, nextFav); err != nil {
 		return 0, fmt.Errorf("advance Folo snapshot: %w", err)
+	}
+	return changed, nil
+}
+
+// recheckCursor reports where the rotating re-read of mapped entries stopped.
+func (s *Syncer) recheckCursor() int64 {
+	value, err := s.db.GetSetting(SyncRecheckKey)
+	if err != nil || value == "" {
+		return 0
+	}
+	id, parseErr := strconv.ParseInt(value, 10, 64)
+	if parseErr != nil {
+		return 0
+	}
+	return id
+}
+
+// recheckRemote re-reads a bounded, rotating slice of already-mapped entries.
+//
+// The live pull only reads entries newer than the cursor, so a change made to an
+// older entry — marked read, or removed from the collection long after it was
+// published — never enters a window again. The entry API can only be queried by
+// publish time, so each mapping is re-read through a narrow window around its own
+// timestamp, which returns both its read flag and its collection state.
+func (s *Syncer) recheckRemote(ctx context.Context) (int, error) {
+	after := s.recheckCursor()
+	rows, err := s.db.ListFoloMappingsForRecheck(after, syncRecheckLimit)
+	if err != nil {
+		return 0, fmt.Errorf("list mappings for recheck: %w", err)
+	}
+	if len(rows) == 0 {
+		// A full page followed by an empty one means the sweep reached the end.
+		// Without rewinding, the watermark stayed on the last id and every later
+		// pass queried past it, so rechecking stopped for good once the table held
+		// exactly one page of mappings.
+		if after != 0 {
+			if err := s.db.SetSetting(SyncRecheckKey, "0"); err != nil {
+				log.Printf("folo sync: rewind recheck cursor: %v", err)
+			}
+		}
+		return 0, nil
+	}
+
+	changed := 0
+	for _, item := range rows {
+		// The entry's own publish time is the only window that reliably contains it:
+		// matching is by URL, so the article's time can differ. Mappings created
+		// before that time was recorded fall back to the article's, with a window
+		// wide enough to absorb the disagreement.
+		at, slack, limit := item.RemotePublishedAt, time.Millisecond, syncRecheckWindow
+		if at == "" {
+			at, slack, limit = item.PublishedAt, syncRecheckFallbackSlack, syncRecheckFallbackWindow
+		}
+		if at == "" {
+			continue
+		}
+		batch, listErr := s.client.ListEntries(ctx, EntryListParams{
+			Limit:     limit,
+			NewerThan: shiftTime(at, -slack),
+			OlderThan: shiftTime(at, slack),
+		})
+		if listErr != nil {
+			return changed, fmt.Errorf("recheck Folo entry %s: %w", item.EntryID, listErr)
+		}
+		for _, entry := range batch {
+			if entry.ID != item.EntryID {
+				continue
+			}
+			applied, applyErr := s.applyEntry(item.ArticleID, entry)
+			if applyErr != nil {
+				return changed, applyErr
+			}
+			changed += applied
+			break
+		}
+	}
+
+	next := rows[len(rows)-1].ArticleID
+	if len(rows) < syncRecheckLimit {
+		// A short page ends the sweep; the next pass starts from the top again.
+		next = 0
+	}
+	if err := s.db.SetSetting(SyncRecheckKey, strconv.FormatInt(next, 10)); err != nil {
+		log.Printf("folo sync: record recheck cursor: %v", err)
 	}
 	return changed, nil
 }
@@ -517,10 +728,42 @@ func timestampAfter(a, b string) bool {
 // shiftTime moves a timestamp bound back so entries sharing the boundary
 // timestamp are not dropped. Folo compares strictly and offers no id cursor, so
 // an unshifted bound would skip rows that tie with the page's last row.
+//
+// published_at reaches this from several paths (feed parsing, imports, older
+// rows), so more than one layout has to parse: returning the value unchanged
+// would make both bounds equal and collapse a recheck window to nothing.
 func shiftTime(value string, delta time.Duration) string {
-	parsed, err := time.Parse(time.RFC3339Nano, value)
-	if err != nil {
-		return value
+	for _, layout := range []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05",
+		// What the article store actually holds: the SQLite driver writes a
+		// time.Time through String(), not RFC3339.
+		"2006-01-02 15:04:05.999999999 -0700 MST",
+		"2006-01-02 15:04:05 -0700 MST",
+		"2006-01-02 15:04:05-07:00",
+		"2006-01-02 15:04:05",
+	} {
+		parsed, err := time.Parse(layout, value)
+		if err == nil {
+			return parsed.Add(delta).UTC().Format(time.RFC3339Nano)
+		}
 	}
-	return parsed.Add(delta).UTC().Format(time.RFC3339Nano)
+	return value
+}
+
+// countPublishedAt counts entries sharing one publish time. A page that ends on a
+// repeated timestamp was cut inside a band the API cannot page through, which is
+// how a pull detects that its coverage stops there.
+func countPublishedAt(entries []Entry, at string) int {
+	if at == "" {
+		return 0
+	}
+	count := 0
+	for _, entry := range entries {
+		if entry.PublishedAt == at {
+			count++
+		}
+	}
+	return count
 }

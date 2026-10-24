@@ -207,7 +207,7 @@ func TestSyncMapsArticleAndAdoptsRemoteState(t *testing.T) {
 func TestSyncPushesLocalReadAndIgnoresStaleTimeline(t *testing.T) {
 	db, syncer, recorder, articleID := newSyncFixture(t)
 	// Both sides were in sync at "unread", then the user read it locally.
-	if err := db.UpsertFoloEntry(articleID, "E1", syncArticleURL, false, false); err != nil {
+	if err := db.UpsertFoloEntry(articleID, "E1", syncArticleURL, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.MarkArticleRead(articleID, true); err != nil {
@@ -234,7 +234,7 @@ func TestSyncPushesLocalReadAndIgnoresStaleTimeline(t *testing.T) {
 
 func TestSyncKeepsChangePendingWhenPushFails(t *testing.T) {
 	db, syncer, recorder, articleID := newSyncFixture(t)
-	if err := db.UpsertFoloEntry(articleID, "E1", syncArticleURL, false, false); err != nil {
+	if err := db.UpsertFoloEntry(articleID, "E1", syncArticleURL, "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.MarkArticleRead(articleID, true); err != nil {
@@ -275,7 +275,7 @@ func TestSyncKeepsChangePendingWhenPushFails(t *testing.T) {
 func TestSyncAppliesRemoteUnfavorite(t *testing.T) {
 	db, syncer, recorder, articleID := newSyncFixture(t)
 	// Both sides had the article saved; then it left the Folo collection.
-	if err := db.UpsertFoloEntry(articleID, "E1", syncArticleURL, false, true); err != nil {
+	if err := db.UpsertFoloEntry(articleID, "E1", syncArticleURL, "", false, true); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.SetArticleFavorite(articleID, true); err != nil {
@@ -316,7 +316,7 @@ func TestSyncPushesLocalFavorite(t *testing.T) {
 // recorderSetFavorite seeds a mapping whose snapshot says "not saved" while the
 // local article is saved.
 func recorderSetFavorite(syncer *Syncer, articleID int64) error {
-	if err := syncer.db.UpsertFoloEntry(articleID, "E1", syncArticleURL, false, false); err != nil {
+	if err := syncer.db.UpsertFoloEntry(articleID, "E1", syncArticleURL, "", false, false); err != nil {
 		return err
 	}
 	return syncer.db.SetArticleFavorite(articleID, true)
@@ -449,7 +449,7 @@ func newTimelineFolo(t *testing.T, entries []Entry) (*httptest.Server, *timeline
 		visible := feed.page(body)
 		rows := make([]map[string]any, 0, len(visible))
 		for _, entry := range visible {
-			rows = append(rows, map[string]any{
+			row := map[string]any{
 				"id":   "row-" + entry.ID,
 				"read": entry.Read,
 				"entries": map[string]any{
@@ -457,7 +457,13 @@ func newTimelineFolo(t *testing.T, entries []Entry) (*httptest.Server, *timeline
 					"url":         entry.URL,
 					"publishedAt": entry.PublishedAt,
 				},
-			})
+			}
+			if entry.Collected {
+				// The real API reports collection membership as an object; without
+				// it a collected entry looks uncollected to the client.
+				row["collections"] = map[string]any{"createdAt": entry.PublishedAt}
+			}
+			rows = append(rows, row)
 		}
 		payload, _ := json.Marshal(map[string]any{"code": 0, "data": rows})
 		_, _ = w.Write(payload)
@@ -647,5 +653,60 @@ func TestSyncPullsNewEntriesWhileBackfilling(t *testing.T) {
 	}
 	if top, _ := db.GetSetting(SyncTopKey); top != fresh[0].PublishedAt {
 		t.Errorf("top = %q, want the newest fresh entry %q", top, fresh[0].PublishedAt)
+	}
+}
+
+// One publish time holding more entries than a page cannot be paged: the entry
+// API only takes time bounds. The pull must record that gap instead of quietly
+// reporting a complete sync, and must still advance so the same page is not
+// re-read inside one pass.
+func TestSyncReportsTruncatedCoverageForOnePublishTimeOverflow(t *testing.T) {
+	published := time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC).Format(time.RFC3339)
+	entries := make([]Entry, 0, 101)
+	for i := 0; i < 101; i++ {
+		entries = append(entries, Entry{
+			ID:          fmt.Sprintf("E%03d", i),
+			PublishedAt: published,
+		})
+	}
+	db, syncer, feed := newTimelineFixture(t, entries)
+
+	result, err := syncer.Sync(context.Background())
+	if err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	if result.Skipped != syncPageSize {
+		t.Errorf("skipped = %d, want one page (%d)", result.Skipped, syncPageSize)
+	}
+	if !result.Truncated {
+		t.Fatal("a publish time holding more entries than a page must be reported as truncated")
+	}
+	if result.TruncatedAt != published {
+		t.Errorf("truncatedAt = %q, want %q", result.TruncatedAt, published)
+	}
+	// Two timeline pages, one band re-read for the unsplittable publish time, then
+	// the collection pass: the walk stops instead of looping on that page.
+	calls := feed.calls()
+	if len(calls) != 4 {
+		t.Fatalf("timeline calls = %d, want 4: %+v", len(calls), calls)
+	}
+	band := calls[2]
+	if band.newerThan == "" || band.olderThan == "" {
+		t.Errorf("third call is not bounded on both sides: %+v", band)
+	}
+	// The cursor still advances to the boundary so a later pass does not walk the
+	// same page again from the top.
+	if cursor, _ := db.GetSetting(SyncCursorKey); cursor != published {
+		t.Errorf("cursor = %q, want the boundary %q", cursor, published)
+	}
+
+	// The gap cannot be recovered by a later pass, so it stays reported rather
+	// than turning into an implied complete sync.
+	second, err := syncer.Sync(context.Background())
+	if err != nil {
+		t.Fatalf("second Sync: %v", err)
+	}
+	if !second.Truncated || second.TruncatedAt != published {
+		t.Errorf("second pass = %+v, want the same truncation", second)
 	}
 }

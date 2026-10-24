@@ -92,4 +92,9 @@ dependencies {
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'androidx.biometric:biometric:1.1.0'
     implementation 'androidx.security:security-crypto:1.1.0-alpha06'
+
+    // Plain-JVM unit tests for host-side logic that does not need the framework
+    // (MIME mapping, path handling). Robolectric is deliberately not added: the
+    // tested seams are pure functions.
+    testImplementation 'junit:junit:4.13.2'
 }

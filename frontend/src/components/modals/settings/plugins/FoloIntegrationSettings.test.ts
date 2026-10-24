@@ -161,6 +161,49 @@ describe('Folo settings', () => {
     wrapper.unmount();
   });
 
+  it('ignores an account read that was issued before a successful sign-in', async () => {
+    let releaseStale: (() => void) | undefined;
+    const stale = new Promise<Response>((resolve) => {
+      // A 401 raised by the read that was already in flight before the user
+      // signed in; it resolves only after the sign-in has completed.
+      releaseStale = () => resolve(new Response('{}', { status: 401 }));
+    });
+    let accountCalls = 0;
+    stubFetch({
+      '/api/folo/account': () => {
+        accountCalls += 1;
+        // Only the read issued on mount is held back; later reads see the freshly
+        // connected account.
+        return accountCalls === 1
+          ? stale
+          : Response.json({ name: 'Ada', email: 'ada@example.com' });
+      },
+      '/api/folo/login/complete': () =>
+        Response.json({ success: true, name: 'Ada', email: 'ada@example.com' }),
+    });
+
+    const wrapper = mountSettings();
+    await vi.waitFor(() => expect(accountCalls).toBe(1));
+
+    const input = wrapper.findAllComponents(InputControl)[0];
+    input.vm.$emit('update:modelValue', 'one-time');
+    await wrapper.vm.$nextTick();
+    const useToken = wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'setting.folo.manualUse');
+    await useToken?.trigger('click');
+    await vi.waitFor(() => expect(textOf(wrapper)).toContain('setting.folo.signedInAs'));
+
+    // The stale read finally resolves; it must not clear the new account.
+    releaseStale?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await wrapper.vm.$nextTick();
+
+    expect(textOf(wrapper)).toContain('setting.folo.signedInAs');
+    expect(textOf(wrapper)).not.toContain('setting.folo.notSignedIn');
+    wrapper.unmount();
+  });
+
   it('syncs read state and refreshes the article list', async () => {
     const calls = stubFetch({
       '/api/folo/account': () =>

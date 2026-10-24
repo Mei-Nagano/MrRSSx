@@ -7,6 +7,7 @@ import ArticleToolbarAction from './parts/ArticleToolbarAction.vue';
 import { parseToolbarLayout, type ToolbarActionID } from '@/utils/articleToolbar';
 import { withShortcut } from '@/composables/ui/shortcutBindings';
 import { PHONE_QUERY } from '@/composables/ui/usePhoneLayout';
+import { useAndroidBack, BACK_PRIORITY } from '@/composables/ui/useAndroidBack';
 import { useSiYuanExport } from '@/composables/article/useSiYuanExport';
 import { PhArrowLeft, PhDotsThree, PhSlidersHorizontal, PhX } from '@phosphor-icons/vue';
 import type { Article } from '@/types/models';
@@ -109,10 +110,18 @@ async function openMenu() {
   const anchor = menuTrigger.value?.getBoundingClientRect();
   if (!anchor) return;
   const top = anchor.bottom + 6;
+  // On the phone layout the bottom bar is fixed over the article, so the menu has
+  // to stop above it instead of running to the viewport edge underneath it. Its
+  // height is measured (56px plus the safe-area inset) rather than copied here as
+  // a second constant that could drift.
+  const bottomBar = isPhone.value
+    ? document.querySelector<HTMLElement>('.smart-activity-bar')
+    : null;
+  const reservedBottom = bottomBar?.offsetHeight ?? 0;
   menuPosition.value = {
     top: `${Math.round(top)}px`,
     right: `${Math.round(Math.max(8, window.innerWidth - anchor.right))}px`,
-    maxHeight: `${Math.max(160, Math.round(window.innerHeight - top - 8))}px`,
+    maxHeight: `${Math.max(160, Math.round(window.innerHeight - top - 8 - reservedBottom))}px`,
   };
   menuPanel.value?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
 }
@@ -121,6 +130,15 @@ function closeMenu(restoreFocus = false) {
   menuOpen.value = false;
   if (restoreFocus) menuTrigger.value?.focus();
 }
+
+// The overflow menu is a layer of its own: back while it is open belongs to the
+// menu, not to the article underneath it. Without this the press fell through to
+// the detail layer and closed the article with the menu still on screen.
+useAndroidBack(() => {
+  if (!menuOpen.value) return false;
+  closeMenu(true);
+  return true;
+}, BACK_PRIORITY.popover);
 
 function onDocumentPointerDown(event: Event) {
   if (!menuOpen.value) return;
@@ -133,8 +151,13 @@ function onDocumentPointerDown(event: Event) {
   closeMenu();
 }
 
-function onViewportChange() {
-  if (menuOpen.value) closeMenu();
+function onViewportChange(event?: Event) {
+  if (!menuOpen.value) return;
+  // The scroll listener runs in the capture phase, so it also sees the panel's
+  // own scrolling. Treating that as a viewport change closed the menu while the
+  // user was reaching for the last action in an overflowing menu.
+  if (event?.target instanceof Node && menuPanel.value?.contains(event.target)) return;
+  closeMenu();
 }
 
 onMounted(async () => {

@@ -3,6 +3,7 @@ import { flushPromises, shallowMount } from '@vue/test-utils';
 import { defineComponent, ref } from 'vue';
 import ArticleDetail from './ArticleDetail.vue';
 import ArticleToolbar from './ArticleToolbar.vue';
+import modalSource from './ArticleDetailModal.vue?raw';
 
 vi.mock('@/composables/article/useArticleDetail', () => ({
   useArticleDetail: () => ({
@@ -38,5 +39,29 @@ describe('reading mode entry', () => {
     expect(wrapper.find('iframe').exists()).toBe(false);
     expect(enterReadingMode).toHaveBeenCalledTimes(1);
     wrapper.unmount();
+  });
+});
+
+describe('original page isolation', () => {
+  it('sandboxes the proxied original page so it cannot reach the app', () => {
+    const wrapper = shallowMount(ArticleDetail, {
+      global: { stubs: { ArticleContent: true } },
+    });
+    const frame = wrapper.find('iframe');
+    expect(frame.exists()).toBe(true);
+
+    const sandbox = frame.attributes('sandbox') ?? '';
+    expect(sandbox).toMatch(/allow-scripts/);
+    // `allow-scripts` together with `allow-same-origin` cancels the sandbox: the
+    // untrusted page keeps the app origin and can reach window.parent, app storage
+    // and the native bridge through the fetch shim. The pair must never come back.
+    expect(sandbox).not.toMatch(/allow-same-origin/);
+    expect(frame.attributes('referrerpolicy')).toBe('no-referrer');
+    wrapper.unmount();
+  });
+
+  it('keeps the same isolation in the card reading modal', () => {
+    expect(modalSource).toMatch(/sandbox="[^"]*allow-scripts/);
+    expect(modalSource).not.toMatch(/allow-same-origin/);
   });
 });

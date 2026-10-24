@@ -316,7 +316,7 @@ func TestHandleLogoutClearsToken(t *testing.T) {
 	h, db := newTestHandler(t)
 	signIn(t, h, server.URL)
 	articleID := seedArticle(t, db, "https://example.com/a")
-	if err := db.UpsertFoloEntry(articleID, "E1", "https://example.com/a", true, false); err != nil {
+	if err := db.UpsertFoloEntry(articleID, "E1", "https://example.com/a", "", true, false); err != nil {
 		t.Fatal(err)
 	}
 	for key, value := range map[string]string{
@@ -590,7 +590,7 @@ func TestHandleSyncPushesLocalChangeToFolo(t *testing.T) {
 	articleID := seedArticle(t, db, "https://example.com/a")
 
 	// Both sides agreed "unread"; the user read it locally.
-	if err := db.UpsertFoloEntry(articleID, "E1", "https://example.com/a", false, false); err != nil {
+	if err := db.UpsertFoloEntry(articleID, "E1", "https://example.com/a", "", false, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.MarkArticleRead(articleID, true); err != nil {

@@ -217,6 +217,7 @@ func StartLogin(apiURL, webURL string, settings httputil.ProxySettingsProvider, 
 
 	serverCtx, cancel := context.WithCancel(context.Background())
 	pending.cancel = cancel
+	pending.ctx = serverCtx
 	go func() {
 		if serveErr := pending.server.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			pending.fail(fmt.Errorf("login listener failed: %w", serveErr))
@@ -267,14 +268,18 @@ type PendingLogin struct {
 	CallbackURL string
 	ExpiresAt   time.Time
 
-	apiURL    string
-	settings  httputil.ProxySettingsProvider
-	persist   PersistFunc
-	path      string
-	listener  net.Listener
-	server    *http.Server
-	done      chan struct{}
-	cancel    context.CancelFunc
+	apiURL   string
+	settings httputil.ProxySettingsProvider
+	persist  PersistFunc
+	path     string
+	listener net.Listener
+	server   *http.Server
+	done     chan struct{}
+	cancel   context.CancelFunc
+	// ctx is cancelled when the attempt is abandoned. The callback's token
+	// exchange derives from it, so a sign-out mid-exchange aborts the request
+	// instead of letting it finish and write the credential back.
+	ctx       context.Context
 	stateMu   sync.Mutex
 	state     string
 	closeOnce sync.Once
@@ -321,6 +326,30 @@ func CancelActiveLogin() {
 	}
 }
 
+// errLoginAbandoned reports that the attempt ended (cancelled, expired or
+// replaced) before its exchanged token could be stored.
+var errLoginAbandoned = errors.New("the Folo sign-in was abandoned")
+
+// abandoned reports whether the attempt already ended without a session.
+func (p *PendingLogin) abandoned() bool {
+	p.stateMu.Lock()
+	defer p.stateMu.Unlock()
+	return p.state == LoginStateFailed || p.state == LoginStateExpired
+}
+
+// persistIfCurrent stores the exchanged token only while p is still the attempt
+// the user is waiting for. The check and the write both happen under loginMu,
+// which CancelActiveLogin also takes, so the two cannot interleave: either the
+// token is written before sign-out clears it, or it is refused afterwards.
+func (p *PendingLogin) persistIfCurrent(ctx context.Context, token string) error {
+	loginMu.Lock()
+	defer loginMu.Unlock()
+	if activeLogin != p || p.abandoned() {
+		return errLoginAbandoned
+	}
+	return p.persist(ctx, token)
+}
+
 func (p *PendingLogin) handleCallback(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -333,17 +362,30 @@ func (p *PendingLogin) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The callback owns the browser navigation, so the exchange runs detached from
-	// any request context that could cancel it.
-	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+	// The callback owns the browser navigation, so the exchange must not inherit a
+	// request context the browser could cancel. It still derives from the
+	// attempt's own context, so abandoning the attempt aborts the exchange.
+	base := p.ctx
+	if base == nil {
+		base = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(base, requestTimeout)
 	defer cancel()
+
 	sessionToken, err := ExchangeLoginToken(ctx, p.apiURL, credential, p.settings)
 	if err != nil {
 		p.fail(err)
 		writeResultPage(w, false, "MrRSS could not finish the Folo sign-in. Start it again.")
 		return
 	}
-	if err := p.persist(ctx, sessionToken); err != nil {
+	// The exchange may finish after the user signed out or started a newer
+	// attempt. Committing is gated so such a token never writes the credential
+	// the user just cleared back into storage.
+	if err := p.persistIfCurrent(ctx, sessionToken); err != nil {
+		if errors.Is(err, errLoginAbandoned) {
+			writeResultPage(w, false, "This sign-in was cancelled. Start it again.")
+			return
+		}
 		p.fail(err)
 		writeResultPage(w, false, "MrRSS could not store the Folo session. Try again.")
 		return

@@ -1388,6 +1388,7 @@ const zh: TranslationMessages = {
       sync: '立即同步',
       syncing: '同步中…',
       syncDone: '同步完成：推送 {pushed} 项，拉取 {pulled} 项',
+    syncTruncated: '同步部分完成：{time} 这一发布时间的条目无法完整读取，其中部分未校验',
       syncFailed: '同步失败',
       syncBusy: '已有同步正在进行',
       lastSync: '上次同步',

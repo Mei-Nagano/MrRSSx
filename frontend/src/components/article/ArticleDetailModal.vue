@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { withShortcut } from '@/composables/ui/shortcutBindings';
+import { useAndroidBack, BACK_PRIORITY } from '@/composables/ui/useAndroidBack';
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useAppStore } from '@/stores/app';
@@ -220,16 +221,33 @@ watch(
   }
 );
 
+/**
+ * Closes the topmost layer inside the modal. Escape and the Android back press
+ * share it so both unwind identically; FindInPage and ImageViewer register at
+ * higher priorities, so they usually consume the press before this runs.
+ */
+function dismissTopLayer(): boolean {
+  if (showFindInPage.value) {
+    showFindInPage.value = false;
+    return true;
+  }
+  if (imageViewerSrc.value) {
+    closeImageViewer();
+    return true;
+  }
+  emit('close');
+  return true;
+}
+
+// A card-layout article opens as a dialog over the list, so back must close the
+// dialog (or the overlay inside it) rather than resetting the list scope or
+// leaving the app from the article.
+useAndroidBack(dismissTopLayer, BACK_PRIORITY.dialog);
+
 function handleKeydown(e: KeyboardEvent) {
-  // ESC to close
+  // ESC closes the same way the system back press does.
   if (e.key === 'Escape') {
-    if (showFindInPage.value) {
-      showFindInPage.value = false;
-    } else if (imageViewerSrc.value) {
-      closeImageViewer();
-    } else {
-      emit('close');
-    }
+    dismissTopLayer();
     return;
   }
 
@@ -350,7 +368,8 @@ function handleOverlayClick(e: MouseEvent) {
               :key="article.id"
               :src="`/api/webpage/proxy?url=${encodeURIComponent(article.url)}`"
               class="w-full h-full border-none"
-              sandbox="allow-scripts allow-same-origin allow-popups"
+              referrerpolicy="no-referrer"
+              sandbox="allow-scripts allow-popups allow-forms"
             ></iframe>
           </div>
 

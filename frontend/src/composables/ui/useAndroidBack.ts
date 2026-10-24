@@ -19,15 +19,22 @@ export type AndroidBackHandler = () => boolean;
 
 /**
  * Priority ladder for back presses. A press must undo the most recent thing on
- * screen, so anything stacked on top registers higher: the article is the floor,
- * the feed drawer sits on it, app-level sheets (settings, add feed) on top of
- * that, dialogs above sheets, transient popovers above dialogs, and the
- * full-screen viewers above everything else.
+ * screen, so anything stacked on top registers higher: the scoped list reset is
+ * the floor, an open article sits on top of the list it was opened from, the feed
+ * drawer on top of that, app-level sheets (settings, add feed) above the drawer,
+ * dialogs above sheets, transient popovers above dialogs, and the full-screen
+ * viewers above everything else.
  */
 export const BACK_PRIORITY = {
-  articleDetail: 0,
   /** Scoped list views (a feed, a category, unread…): back returns to All. */
   view: 5,
+  /**
+   * An open article covers the list, so it must consume the press before the
+   * list-scope reset; otherwise back would jump to All with the article still
+   * open. Its handler declines when no article is open, which keeps the reset
+   * working on a plain scoped list.
+   */
+  articleDetail: 8,
   drawer: 10,
   sheet: 100,
   dialog: 500,

@@ -3,6 +3,7 @@ package folo
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -359,4 +360,129 @@ func get(t *testing.T, url string) string {
 		t.Fatal(err)
 	}
 	return string(body)
+}
+
+// A sign-out that lands while the callback is exchanging must not let the token
+// reach storage afterwards: that is exactly the credential a cancelled sign-in
+// used to write back.
+func TestCancelledLoginDoesNotPersistInFlightToken(t *testing.T) {
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	defer unblock()
+
+	entered := make(chan struct{})
+	var enteredOnce sync.Once
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != pathApplyToken {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		enteredOnce.Do(func() { close(entered) })
+		<-release // hold the exchange open until the test cancels
+		http.SetCookie(w, &http.Cookie{Name: sessionCookieName, Value: "SESSION-LATE"})
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"session": map[string]string{"token": "SESSION-LATE"},
+		})
+	}))
+	defer api.Close()
+
+	persisted := make(chan string, 1)
+	pending, err := StartLogin(api.URL, api.URL, nil, func(_ context.Context, token string) error {
+		persisted <- token
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("StartLogin: %v", err)
+	}
+	t.Cleanup(CancelActiveLogin)
+
+	callbackDone := make(chan struct{})
+	go func() {
+		defer close(callbackDone)
+		resp, getErr := http.Get(pending.CallbackURL + "?token=one-time")
+		if getErr == nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+		}
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the callback never reached the token exchange")
+	}
+
+	CancelActiveLogin()
+	unblock()
+
+	select {
+	case <-callbackDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the callback did not finish after cancellation")
+	}
+
+	select {
+	case token := <-persisted:
+		t.Errorf("a cancelled sign-in stored %q", token)
+	default:
+	}
+	if status := ActiveLoginStatus(); status.State == LoginStateConnected {
+		t.Errorf("a cancelled attempt reported connected: %+v", status)
+	}
+}
+
+// The commit gate itself: an attempt that was cancelled or replaced may never
+// write a token, while the current attempt still can.
+func TestPersistIfCurrentRefusesAbandonedOrReplacedAttempt(t *testing.T) {
+	loginMu.Lock()
+	previous := activeLogin
+	loginMu.Unlock()
+	t.Cleanup(func() {
+		loginMu.Lock()
+		activeLogin = previous
+		loginMu.Unlock()
+	})
+
+	stored := make(chan string, 4)
+	newAttempt := func() *PendingLogin {
+		return &PendingLogin{
+			done: make(chan struct{}),
+			persist: func(_ context.Context, token string) error {
+				stored <- token
+				return nil
+			},
+		}
+	}
+
+	cancelled := newAttempt()
+	loginMu.Lock()
+	activeLogin = cancelled
+	loginMu.Unlock()
+	cancelled.Cancel()
+	if err := cancelled.persistIfCurrent(context.Background(), "SESSION-CANCELLED"); !errors.Is(err, errLoginAbandoned) {
+		t.Errorf("cancelled attempt returned %v, want errLoginAbandoned", err)
+	}
+
+	older := newAttempt()
+	newer := newAttempt()
+	loginMu.Lock()
+	activeLogin = newer
+	loginMu.Unlock()
+
+	if err := older.persistIfCurrent(context.Background(), "SESSION-OLDER"); !errors.Is(err, errLoginAbandoned) {
+		t.Errorf("replaced attempt returned %v, want errLoginAbandoned", err)
+	}
+	if err := newer.persistIfCurrent(context.Background(), "SESSION-CURRENT"); err != nil {
+		t.Errorf("current attempt should be allowed to persist: %v", err)
+	}
+
+	close(stored)
+	var got []string
+	for token := range stored {
+		got = append(got, token)
+	}
+	if len(got) != 1 || got[0] != "SESSION-CURRENT" {
+		t.Errorf("persisted %v, want only the current attempt's token", got)
+	}
 }

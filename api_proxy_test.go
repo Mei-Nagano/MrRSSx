@@ -3,9 +3,11 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"testing"
+	"time"
 )
 
 func TestAPIProxyReplaysMethodBodyAndQuery(t *testing.T) {
@@ -67,5 +69,73 @@ func TestAPIProxyRejectsForeignPaths(t *testing.T) {
 	proxy := &APIProxy{mux: http.NewServeMux()}
 	if _, err := proxy.Do(APIProxyRequest{Method: http.MethodGet, Path: "/etc/passwd"}); err == nil {
 		t.Fatal("expected an error for a non-/api/ path")
+	}
+}
+
+// An abandoned request must stop inside Go, otherwise work the user cancelled
+// keeps running and may still touch upstream services.
+func TestAPIProxyCancelStopsAnInFlightRequest(t *testing.T) {
+	started := make(chan struct{})
+	observed := make(chan struct{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/slow", func(_ http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-r.Context().Done()
+		close(observed)
+	})
+
+	proxy := &APIProxy{mux: mux}
+	done := make(chan error, 1)
+	go func() {
+		_, err := proxy.Do(APIProxyRequest{
+			Method:    http.MethodGet,
+			Path:      "/api/slow",
+			RequestID: "req-in-flight",
+		})
+		done <- err
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the request never reached the handler")
+	}
+	if err := proxy.Cancel("req-in-flight"); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+
+	select {
+	case <-observed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the handler did not observe the cancellation")
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Do did not return after the cancellation")
+	}
+}
+
+// An abort can reach the backend before the call that carries the same id; the
+// request must then never run at all.
+func TestAPIProxyCancelBeforeRequestSkipsHandler(t *testing.T) {
+	ran := false
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/anything", func(http.ResponseWriter, *http.Request) { ran = true })
+
+	proxy := &APIProxy{mux: mux}
+	if err := proxy.Cancel("req-early"); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	_, err := proxy.Do(APIProxyRequest{
+		Method:    http.MethodGet,
+		Path:      "/api/anything",
+		RequestID: "req-early",
+	})
+	if !errors.Is(err, errAPIProxyCancelled) {
+		t.Fatalf("Do returned %v, want errAPIProxyCancelled", err)
+	}
+	if ran {
+		t.Error("a request cancelled before dispatch must not reach the handler")
 	}
 }

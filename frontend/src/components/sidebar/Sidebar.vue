@@ -85,6 +85,10 @@ function collapseFloatingFeedList(event?: Event) {
   // closing the sheet for anyone who had pinned it on desktop.
   if (isEffectivelyPinned.value || !props.isOpen) return;
   if (event?.target instanceof Node && sidebarRoot.value?.contains(event.target)) return;
+  // A dialog the drawer owns is Teleported to body, so it is outside sidebarRoot
+  // while still belonging to this sheet. Without this the saved-filter dialog
+  // collapsed the drawer and unmounted itself mid-edit on the first tap.
+  if (event?.target instanceof Element && event.target.closest('[data-drawer-popover]')) return;
   handleFeedListCollapse();
 }
 onMounted(() => {

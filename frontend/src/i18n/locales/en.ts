@@ -1450,6 +1450,8 @@ const en: TranslationMessages = {
       sync: 'Sync now',
       syncing: 'Syncing...',
       syncDone: 'Synced: {pushed} pushed, {pulled} pulled',
+    syncTruncated:
+      'Partial sync: the entries published at {time} could not be read completely, so some of them were not checked',
       syncFailed: 'Sync failed',
       syncBusy: 'A sync is already running',
       lastSync: 'Last sync',

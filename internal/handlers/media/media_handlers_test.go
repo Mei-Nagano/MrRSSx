@@ -300,3 +300,21 @@ func TestConvertLazyImagesKeepsExistingProxies(t *testing.T) {
 		}
 	}
 }
+
+// A stylesheet whose URL has no extension is still a stylesheet; the WebView cannot
+// tell from the bytes, so the rewritten URL carries the type.
+func TestRewriteKeepsStylesheetTypeHint(t *testing.T) {
+	html := `<html><head><link rel="stylesheet" href="https://example.com/style"></head></html>`
+	out := string(rewriteHTMLContent([]byte(html), "https://example.com/post"))
+	if !strings.Contains(out, "ct=text%2Fcss") {
+		t.Errorf("stylesheet link lost its type hint: %s", out)
+	}
+}
+
+func TestRewriteKeepsCSSImportTypeHint(t *testing.T) {
+	css := `@import url("https://example.com/theme");`
+	out := rewriteCSSURLs(css, "https://example.com/style")
+	if !strings.Contains(out, "ct=text%2Fcss") {
+		t.Errorf("css import lost its type hint: %s", out)
+	}
+}

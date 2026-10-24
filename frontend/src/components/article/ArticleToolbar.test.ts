@@ -5,6 +5,7 @@ import { settingsDefaults } from '@/config/defaults';
 import type { SettingsData } from '@/types/settings';
 import type { Article } from '@/types/models';
 import ArticleToolbar from './ArticleToolbar.vue';
+import { installAndroidBackBridge } from '@/composables/ui/useAndroidBack';
 
 const settings = ref({ ...settingsDefaults, article_toolbar_layout: '[]' } as SettingsData);
 
@@ -116,4 +117,68 @@ describe('Article toolbar', () => {
     expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(0);
     wrapper.unmount();
   });
-});
+
+  it('keeps the overflow menu open while the menu itself scrolls', async () => {
+    usePhoneViewport();
+    const wrapper = mountToolbar();
+    await wrapper.vm.$nextTick();
+    await wrapper.find('[aria-label="article.toolbar.moreActions"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    const panel = document.querySelector('[role="menu"]');
+    expect(panel).not.toBeNull();
+
+    // The capture-phase scroll listener also sees the panel's own scrolling;
+    // treating that as a viewport change closed the menu while the user was
+    // reaching for the last action in an overflowing menu.
+    panel?.dispatchEvent(new Event('scroll'));
+    await wrapper.vm.$nextTick();
+    expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(5);
+
+    // Scrolling the page behind it still counts as the menu moving away.
+    document.body.dispatchEvent(new Event('scroll'));
+    await wrapper.vm.$nextTick();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    wrapper.unmount();
+  });
+
+  it('stops the overflow menu above the phone bottom bar', async () => {
+    usePhoneViewport();
+    const bar = document.createElement('div');
+    bar.className = 'smart-activity-bar';
+    // jsdom has no layout, so the measured height has to be provided.
+    Object.defineProperty(bar, 'offsetHeight', { value: 56 });
+    document.body.appendChild(bar);
+
+    const wrapper = mountToolbar();
+    await wrapper.vm.$nextTick();
+    await wrapper.find('[aria-label="article.toolbar.moreActions"]').trigger('click');
+    await wrapper.vm.$nextTick();
+
+    const panel = document.querySelector('[role="menu"]') as HTMLElement | null;
+    expect(panel).not.toBeNull();
+    const top = Number.parseFloat(panel?.style.top ?? '0');
+    const maxHeight = Number.parseFloat(panel?.style.maxHeight ?? '0');
+    // The menu must end above the bar instead of running under it.
+    expect(maxHeight).toBeLessThanOrEqual(window.innerHeight - top - 8 - 56 + 1);
+    wrapper.unmount();
+  });
+
+  // The menu is a layer: back while it is open belongs to it, not to the article
+  // underneath, which used to close with the menu still on screen.
+  it('closes the overflow menu on back before the article', async () => {
+    installAndroidBackBridge();
+    usePhoneViewport();
+    const wrapper = mountToolbar();
+    await wrapper.vm.$nextTick();
+    await wrapper.find('[aria-label="article.toolbar.moreActions"]').trigger('click');
+    await wrapper.vm.$nextTick();
+    expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(5);
+
+    const handled = (window as unknown as { __mrrssHandleBack?: () => boolean }).__mrrssHandleBack?.();
+    await wrapper.vm.$nextTick();
+
+    expect(handled).toBe(true);
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    wrapper.unmount();
+  });});

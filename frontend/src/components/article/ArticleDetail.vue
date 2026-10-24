@@ -45,9 +45,9 @@ const showFindInPage = ref(false);
 const contentView = ref<InstanceType<typeof ArticleContent> | null>(null);
 
 // Android hardware back: the image viewer and find-in-page are overlays inside
-// this pane, so they close before the article itself does. The pane is the
-// bottom layer — the feed drawer and app sheets sit on top of it — so it takes
-// the lowest priority; anything above it gets the press first.
+// this pane, so they close before the article itself does. The pane covers the
+// list it was opened from, so it must also consume the press before the
+// list-scope reset; the feed drawer and app sheets still sit above it.
 useAndroidBack(() => {
   if (!article.value) return false;
   if (imageViewerSrc.value) {
@@ -193,7 +193,8 @@ onBeforeUnmount(() => {
           :key="article.id"
           :src="`/api/webpage/proxy?url=${encodeURIComponent(article.url)}`"
           class="w-full h-full border-none"
-          sandbox="allow-scripts allow-same-origin allow-popups"
+          referrerpolicy="no-referrer"
+          sandbox="allow-scripts allow-popups allow-forms"
         ></iframe>
       </div>
 

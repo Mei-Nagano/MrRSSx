@@ -503,6 +503,13 @@ public class WailsBridge {
                     emitEvent("common:torch", "{\"on\":false,\"available\":false}");
                     return;
                 }
+                // setTorchMode arrived in API 23; below that there is no torch API to
+                // drive, and calling it would throw NoSuchMethodError (an Error, so the
+                // catch below would not intercept it).
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+                    emitEvent("common:torch", "{\"on\":false,\"available\":false}");
+                    return;
+                }
                 cm.setTorchMode(flashId, enabled != 0);
                 torchOn = enabled != 0;
                 emitEvent("common:torch",
@@ -894,12 +901,16 @@ public class WailsBridge {
 
     private boolean hasLocationPermission() {
         return hasFineLocationPermission()
-                || activity.checkSelfPermission("android.permission.ACCESS_COARSE_LOCATION")
+                || ContextCompat.checkSelfPermission(activity,
+                        "android.permission.ACCESS_COARSE_LOCATION")
                 == PackageManager.PERMISSION_GRANTED;
     }
 
     private boolean hasFineLocationPermission() {
-        return activity.checkSelfPermission("android.permission.ACCESS_FINE_LOCATION")
+        // Activity#checkSelfPermission is API 23. ContextCompat resolves to the
+        // install-time grant below API 23, so no version branch is needed here.
+        return ContextCompat.checkSelfPermission(activity,
+                "android.permission.ACCESS_FINE_LOCATION")
                 == PackageManager.PERMISSION_GRANTED;
     }
 
@@ -926,11 +937,16 @@ public class WailsBridge {
         mainHandler.post(() -> {
             try {
                 if (!hasLocationPermission()) {
-                    pendingLocationRequest = true;
-                    activity.requestPermissions(new String[]{
-                            "android.permission.ACCESS_FINE_LOCATION",
-                            "android.permission.ACCESS_COARSE_LOCATION"}, LOCATION_PERMISSION_REQUEST);
-                    return;
+                    // requestPermissions is API 23. Below that the permission is granted
+                    // at install time, so there is no dialog to show and calling it would
+                    // throw NoSuchMethodError.
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        pendingLocationRequest = true;
+                        activity.requestPermissions(new String[]{
+                                "android.permission.ACCESS_FINE_LOCATION",
+                                "android.permission.ACCESS_COARSE_LOCATION"}, LOCATION_PERMISSION_REQUEST);
+                        return;
+                    }
                 }
                 LocationManager lm = (LocationManager) activity.getSystemService(Context.LOCATION_SERVICE);
                 if (lm == null) { emitLocationError("location unavailable"); return; }

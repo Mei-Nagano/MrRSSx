@@ -10,6 +10,8 @@ import android.database.Cursor;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.net.NetworkInfo;
+import android.net.NetworkRequest;
 import android.net.Uri;
 import android.os.BatteryManager;
 import android.os.Build;
@@ -22,6 +24,8 @@ import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.util.Base64;
 import android.util.Log;
+import android.webkit.ValueCallback;
+import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
@@ -30,6 +34,7 @@ import android.webkit.WebViewClient;
 
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 import androidx.webkit.WebViewAssetLoader;
 
@@ -80,6 +85,10 @@ public class MainActivity extends AppCompatActivity {
     private static final int PHOTO_CAPTURE_REQUEST = 7002;
     private static final int VIDEO_CAPTURE_REQUEST = 7003;
     private static final int CAMERA_PERMISSION_REQUEST = 7010;
+    // A page-level <input type="file">: the WebView has no picker of its own, so
+    // the host must show the system one and hand the result back.
+    private static final int WEB_FILE_CHOOSER_REQUEST = 7011;
+    private ValueCallback<Uri[]> webFileChooserCallback;
     private File pendingCaptureFile;
     private boolean pendingCaptureIsVideo;
 
@@ -154,7 +163,7 @@ public class MainActivity extends AppCompatActivity {
                     String path = request.getUrl().getPath();
                     if (path != null && path.startsWith("/wails/")) {
                         String fullPath = path;
-                        String query = request.getUrl().getQuery();
+                        String query = request.getUrl().getEncodedQuery();
                         if (query != null && !query.isEmpty()) {
                             fullPath = path + "?" + query;
                         }
@@ -164,7 +173,10 @@ public class MainActivity extends AppCompatActivity {
                         if (data != null && data.length > 0) {
                             java.io.InputStream inputStream = new java.io.ByteArrayInputStream(data);
                             java.util.Map<String, String> headers = new java.util.HashMap<>();
-                            headers.put("Access-Control-Allow-Origin", "*");
+                            // No Access-Control-Allow-Origin: this is the runtime/native
+                            // API and only the app's own same-origin frame consumes it. A
+                            // wildcard here would let any framed document, including an
+                            // untrusted original page, reach native methods.
                             headers.put("Cache-Control", "no-cache");
                             headers.put("Content-Type", "application/json");
 
@@ -204,7 +216,7 @@ public class MainActivity extends AppCompatActivity {
                     // as ERR_CONNECTION_REFUSED.
                     if (path != null && path.startsWith("/api/")) {
                         String fullPath = path;
-                        String query = request.getUrl().getQuery();
+                        String query = request.getUrl().getEncodedQuery();
                         if (query != null && !query.isEmpty()) {
                             fullPath = path + "?" + query;
                         }
@@ -231,6 +243,36 @@ public class MainActivity extends AppCompatActivity {
 
         // Add JavaScript interface for Go communication
         webView.addJavascriptInterface(new WailsJSBridge(bridge, webView), "wails");
+
+        // The interface is injected into every frame, so the frames that are not the
+        // app document drop it before their own scripts run.
+        BridgeGuard.install(webView);
+
+        // A page-level <input type="file"> has no picker inside the WebView; without
+        // this callback the tap does nothing at all (rule import, backup restore).
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> filePathCallback,
+                                             FileChooserParams params) {
+                // Release a stale callback first, otherwise the page's next file
+                // input never gets an answer.
+                if (webFileChooserCallback != null) {
+                    webFileChooserCallback.onReceiveValue(null);
+                }
+                webFileChooserCallback = filePathCallback;
+                try {
+                    Intent intent = params.createIntent();
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    startActivityForResult(intent, WEB_FILE_CHOOSER_REQUEST);
+                    return true;
+                } catch (Exception e) {
+                    Log.e(TAG, "file chooser failed", e);
+                    webFileChooserCallback = null;
+                    filePathCallback.onReceiveValue(null);
+                    return false;
+                }
+            }
+        });
     }
 
     private void loadApplication() {
@@ -245,10 +287,16 @@ public class MainActivity extends AppCompatActivity {
      * the result is delivered to JS as a "common:capture" event.
      */
     public void launchCameraCapture(boolean video) {
-        if (checkSelfPermission("android.permission.CAMERA") != PackageManager.PERMISSION_GRANTED) {
-            pendingCaptureIsVideo = video;
-            requestPermissions(new String[]{"android.permission.CAMERA"}, CAMERA_PERMISSION_REQUEST);
-            return;
+        if (ContextCompat.checkSelfPermission(this, "android.permission.CAMERA")
+                != PackageManager.PERMISSION_GRANTED) {
+            // checkSelfPermission/requestPermissions are API 23. Below that a manifest
+            // permission is granted at install time, so there is nothing to request and
+            // calling either method would throw NoSuchMethodError.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                pendingCaptureIsVideo = video;
+                requestPermissions(new String[]{"android.permission.CAMERA"}, CAMERA_PERMISSION_REQUEST);
+                return;
+            }
         }
         try {
             File dir = new File(getCacheDir(), "captures");
@@ -407,9 +455,14 @@ public class MainActivity extends AppCompatActivity {
 
         String mimeType = sniffMimeType(data, fullPath);
         java.util.Map<String, String> headers = new java.util.HashMap<>();
-        // Same-origin already, but the proxy responses are also used inside the
-        // article iframe, so allow them explicitly.
-        headers.put("Access-Control-Allow-Origin", "*");
+        // The original-page iframe is sandboxed without allow-same-origin, so it runs
+        // in an opaque origin and needs CORS to read its own proxied assets (fonts and
+        // module scripts require it; images and stylesheets do not). Scoped to the
+        // proxy routes deliberately: a wildcard on every /api/ route would let such a
+        // frame read article and settings data.
+        if (fullPath.startsWith("/api/webpage/")) {
+            headers.put("Access-Control-Allow-Origin", "*");
+        }
         headers.put("Cache-Control", "no-cache");
 
         // Charset only makes sense for text; declaring it on image/png makes some
@@ -423,23 +476,74 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * Guess a MIME type from the payload. {@code URLConnection.guessContentType-
-     * FromStream} covers the common feed assets (HTML, PNG, JPEG, GIF, PDF);
-     * anything it cannot recognise falls back to JSON, which is what most /api/
-     * routes return, except the two proxy routes that serve documents.
+     * FromStream} covers the common feed assets (HTML, PNG, JPEG, GIF, PDF).
+     *
+     * Stylesheets, module scripts and fonts carry no magic bytes, and answering
+     * text/html for them makes the WebView refuse to apply them, so the original
+     * URL — still present as url_b64 — supplies the extension instead. Only when
+     * neither signal exists does the path-based fallback apply.
      */
+    /** Reads a percent-encoded query parameter; the base64 ones go through queryParam. */
+    @Nullable
+    private String plainQueryParam(String fullPath, String name) {
+        try {
+            return android.net.Uri.parse("http://localhost" + fullPath).getQueryParameter(name);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
     private String sniffMimeType(byte[] data, String path) {
+        String hint = ResourceMime.fromTypeHint(plainQueryParam(path, "ct"));
+        if (hint != null) {
+            return hint;
+        }
         try (java.io.ByteArrayInputStream in = new java.io.ByteArrayInputStream(data)) {
             String sniffed = java.net.URLConnection.guessContentTypeFromStream(in);
             if (sniffed != null) {
                 return sniffed;
             }
         } catch (Exception ignored) {
-            // Fall through to the path-based guess.
+            // Fall through to the extension and path guesses.
         }
+
+        String upstream = queryParam(path, "url_b64");
+        if (upstream != null) {
+            String byExtension = mimeFromFileName(upstream);
+            if (byExtension != null) {
+                return byExtension;
+            }
+        }
+
         if (path.startsWith("/api/webpage/")) {
             return "text/html";
         }
         return "application/json";
+    }
+
+    /**
+     * Reads and base64-decodes a query parameter. The proxies build these URLs by
+     * concatenating standard base64, where '+' reaches the parser as a space, so
+     * it is restored before decoding.
+     */
+    @Nullable
+    private String queryParam(String fullPath, String name) {
+        try {
+            String raw = android.net.Uri.parse("http://localhost" + fullPath).getQueryParameter(name);
+            if (raw == null || raw.isEmpty()) {
+                return null;
+            }
+            byte[] decoded = android.util.Base64.decode(
+                    raw.replace(' ', '+'), android.util.Base64.DEFAULT);
+            return new String(decoded, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Maps a resource URL's extension to the type the WebView expects. */
+    @Nullable
+    private String mimeFromFileName(String url) {
+        return ResourceMime.fromUrl(url);
     }
 
     /**
@@ -562,6 +666,15 @@ public class MainActivity extends AppCompatActivity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == PHOTO_CAPTURE_REQUEST || requestCode == VIDEO_CAPTURE_REQUEST) {
             handleCaptureResult(resultCode, data);
+            return;
+        }
+        if (requestCode == WEB_FILE_CHOOSER_REQUEST) {
+            // A cancelled picker must still answer, or the page's <input> stays busy.
+            if (webFileChooserCallback != null) {
+                Uri[] result = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
+                webFileChooserCallback.onReceiveValue(result);
+                webFileChooserCallback = null;
+            }
             return;
         }
         if (requestCode != FILE_PICKER_REQUEST) {
@@ -699,9 +812,21 @@ public class MainActivity extends AppCompatActivity {
                 }
             };
             try {
-                connectivityManager.registerDefaultNetworkCallback(networkCallback);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    connectivityManager.registerDefaultNetworkCallback(networkCallback);
+                } else {
+                    // registerDefaultNetworkCallback arrived in API 24, but minSdk is 21.
+                    // On API 21-23 the call throws NoSuchMethodError, which is an Error
+                    // rather than an Exception, so the catch below never intercepts it
+                    // and the app dies during startup. Registering against an explicit
+                    // request is the API 21 equivalent for the same callback.
+                    NetworkRequest request = new NetworkRequest.Builder()
+                            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                            .build();
+                    connectivityManager.registerNetworkCallback(request, networkCallback);
+                }
             } catch (Exception e) {
-                Log.e(TAG, "registerDefaultNetworkCallback failed", e);
+                Log.e(TAG, "network callback registration failed", e);
             }
         }
     }
@@ -741,14 +866,52 @@ public class MainActivity extends AppCompatActivity {
     private void emitSystemSnapshot() {
         emitBattery(registerSticky(Intent.ACTION_BATTERY_CHANGED));
         if (connectivityManager != null) {
-            Network active = connectivityManager.getActiveNetwork();
-            if (active != null) {
-                emitNetwork(active);
+            // getActiveNetwork arrived in API 23; older devices read the legacy
+            // NetworkInfo instead of crashing on a missing method.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                Network active = connectivityManager.getActiveNetwork();
+                if (active != null) {
+                    emitNetwork(active);
+                } else {
+                    emitNetworkDisconnected();
+                }
             } else {
-                emitNetworkDisconnected();
+                emitLegacyNetwork();
             }
         }
         emitTheme();
+    }
+
+    /**
+     * Connectivity snapshot for API 21-22. Emits the same payload shape as
+     * {@link #emitNetwork} so the frontend keeps a single code path.
+     */
+    @SuppressWarnings("deprecation")
+    private void emitLegacyNetwork() {
+        try {
+            NetworkInfo info = connectivityManager != null
+                    ? connectivityManager.getActiveNetworkInfo() : null;
+            boolean connected = info != null && info.isConnected();
+            String type = "none";
+            if (info != null) {
+                if (info.getType() == ConnectivityManager.TYPE_WIFI) {
+                    type = "wifi";
+                } else if (info.getType() == ConnectivityManager.TYPE_MOBILE) {
+                    type = "cellular";
+                } else if (info.getType() == ConnectivityManager.TYPE_ETHERNET) {
+                    type = "wired";
+                } else {
+                    type = connected ? "other" : "none";
+                }
+            }
+            JSONObject o = new JSONObject();
+            o.put("connected", connected);
+            o.put("type", type);
+            o.put("metered", connectivityManager.isActiveNetworkMetered());
+            if (bridge != null) bridge.emitSystemEvent("android:NetworkChanged", o.toString());
+        } catch (Exception e) {
+            Log.e(TAG, "emitLegacyNetwork failed", e);
+        }
     }
 
     private void emitBattery(@Nullable Intent batteryStatus) {

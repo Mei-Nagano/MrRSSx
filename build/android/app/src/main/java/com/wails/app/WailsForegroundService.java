@@ -66,6 +66,17 @@ public class WailsForegroundService extends android.app.Service {
         return START_STICKY;
     }
 
+    /**
+     * Android 15 caps a dataSync foreground service at six hours. When the budget
+     * is spent the system calls this and kills the process if the service is still
+     * running, so stop here instead of waiting for that crash. Background refresh
+     * is stateless: the next transition to the background starts a fresh service.
+     */
+    @Override
+    public void onTimeout(int startId, int fgsType) {
+        stopSelf(startId);
+    }
+
     @Nullable
     @Override
     public IBinder onBind(Intent intent) {

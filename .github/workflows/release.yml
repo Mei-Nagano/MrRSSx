@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g., v1.1.0)'
-        required: true
+        description: 'Release version (leave empty to build the rolling latest from frontend/package.json)'
+        required: false
         type: string
 
 jobs:
@@ -17,6 +17,7 @@ jobs:
     outputs:
       version: ${{ steps.get_version.outputs.version }}
       tag: ${{ steps.get_version.outputs.tag }}
+      rolling: ${{ steps.get_version.outputs.rolling }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -26,10 +27,24 @@ jobs:
         id: get_version
         run: |
           VERSION="${{ github.event.inputs.version }}"
+          # No version typed: build the rolling "latest" from the version the repo
+          # already carries, so publishing never depends on remembering a number.
+          if [ -z "$VERSION" ]; then
+            VERSION="$(node -p "require('./frontend/package.json').version")"
+            ROLLING="true"
+            echo "Building the rolling latest at $VERSION"
+          else
+            ROLLING="false"
+          fi
           # Remove 'v' prefix if present
           VERSION="${VERSION#v}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+          if [ "$ROLLING" = "true" ]; then
+            echo "tag=latest" >> $GITHUB_OUTPUT
+          else
+            echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+          fi
+          echo "rolling=$ROLLING" >> $GITHUB_OUTPUT
 
           # Check if this is a pre-release (alpha or beta)
           # Match versions like 1.2.3-alpha, 1.2.3-alpha.1, 1.2.3-beta, 1.2.3-beta.2
@@ -54,7 +69,7 @@ jobs:
           fi
 
       - name: Create Git tag
-        if: steps.check_tag.outputs.tag_exists == 'false'
+        if: steps.get_version.outputs.rolling != 'true' && steps.check_tag.outputs.tag_exists == 'false'
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
@@ -87,9 +102,26 @@ jobs:
           name: MrRSS ${{ steps.get_version.outputs.tag }}
           body_path: RELEASE_NOTES.md
           draft: false
-          prerelease: ${{ steps.get_version.outputs.is_prerelease == 'true' }}
-          make_latest: ${{ steps.get_version.outputs.is_prerelease == 'false' }}
+          prerelease: ${{ steps.get_version.outputs.rolling == 'true' || steps.get_version.outputs.is_prerelease == 'true' }}
+          make_latest: ${{ steps.get_version.outputs.rolling != 'true' && steps.get_version.outputs.is_prerelease == 'false' }}
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      # A rolling release keeps its name, so asset names from earlier versions would
+      # otherwise accumulate there forever. Only the version about to be built stays.
+      - name: Drop stale assets from the rolling release
+        if: steps.get_version.outputs.rolling == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.get_version.outputs.version }}"
+          gh release view latest --json assets -q '.assets[].name' | while read -r name; do
+            [ -n "$name" ] || continue
+            case "$name" in
+              *"$VERSION"*) ;;
+              *) gh release delete-asset latest "$name" -y && echo "removed stale $name" ;;
+            esac
+          done
 
   package-skills:
     name: Package Skills
@@ -190,6 +222,13 @@ jobs:
           # Get release info and check for existing assets
           TAG="${{ needs.create-release.outputs.tag }}"
           VERSION="${{ needs.create-release.outputs.version }}"
+
+          # A rolling build replaces the previous latest, so assets left from an
+          # earlier run must not be mistaken for work that is already done.
+          if [ "${{ needs.create-release.outputs.rolling }}" = "true" ]; then
+            echo "skip_build=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
 
           # Determine expected artifact names for this platform/arch
           if [ "${{ matrix.platform }}" = "windows" ]; then

@@ -956,6 +956,7 @@ function handleFilterDragEnd() {
     <SavedFilterModal
       :show="showSaveFilterModal"
       :current-filters="currentFiltersValue"
+      data-drawer-popover
       @close="closeSaveModal"
       @save="handleSaveFilter"
     />
@@ -966,6 +967,7 @@ function handleFilterDragEnd() {
     <SavedFilterModal
       :show="showEditFilterModal"
       :edit-filter="editingFilter"
+      data-drawer-popover
       @close="closeEditModal"
       @save="handleEditFilter"
     />

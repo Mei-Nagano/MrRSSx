@@ -62,9 +62,21 @@ function update(field: 'api_url' | 'web_url' | 'folder_mode', value: string) {
   emit('update:settings', { ...props.settings, [`folo_${field}`]: value });
 }
 
+// Every account read carries a generation. A response may only write state while
+// it is still the newest read and no local sign-in/sign-out happened since it was
+// issued. Without this, a slow 401 sent before a successful sign-in lands after
+// it and clears the account the user just connected (F05).
+let accountGeneration = 0;
+
+function invalidateAccountReads() {
+  accountGeneration += 1;
+}
+
 async function fetchAccount() {
+  const generation = ++accountGeneration;
   try {
     const res = await fetch('/api/folo/account', { signal: controller.signal });
+    if (generation !== accountGeneration) return;
     // 401 is the only answer that means "signed out". A 502 means the account
     // could not be checked right now (offline, Folo unreachable), so keep the
     // last known state instead of pretending the user was logged out.
@@ -74,6 +86,7 @@ async function fetchAccount() {
     }
     if (!res.ok) return;
     const data = await res.json();
+    if (generation !== accountGeneration) return;
     account.value = { name: data.name || '', email: data.email || '' };
     lastImport.value = data.last_import_time || null;
     lastSync.value = data.last_sync_time || null;
@@ -92,6 +105,7 @@ function stopPolling() {
 // different account). Showing "signed in" after that is worse than a fresh
 // sign-in prompt, so the panel drops back to the signed-out state.
 function expireSession() {
+  invalidateAccountReads();
   account.value = null;
   stopPolling();
   signingIn.value = false;
@@ -164,6 +178,7 @@ async function useToken() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ credential: value }),
     });
+    invalidateAccountReads();
     account.value = { name: data.name || '', email: data.email || '' };
     credential.value = '';
     stopPolling();
@@ -180,6 +195,7 @@ async function signOut() {
   busy.value = true;
   try {
     await request('/api/folo/logout', { method: 'POST' });
+    invalidateAccountReads();
     account.value = null;
     stopPolling();
     signingIn.value = false;
@@ -233,6 +249,14 @@ async function syncState() {
       t('setting.folo.syncDone', { pushed: data.pushed, pulled: data.pulled }),
       'success',
     );
+    if (data.truncated) {
+      // The pull could not cover a publish time the API cannot page through, so
+      // reporting only success would present an incomplete sync as a full one.
+      window.showToast(
+        t('setting.folo.syncTruncated', { time: data.truncated_at ?? '' }),
+        'warning',
+      );
+    }
     await fetchAccount();
     // Pulled state changes the read/favorite flags the list is rendering.
     window.dispatchEvent(new CustomEvent('refresh-articles'));

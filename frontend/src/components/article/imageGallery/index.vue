@@ -11,6 +11,7 @@ import { useImageGalleryData } from './composables/useImageGalleryData';
 import { useMasonryLayout } from './composables/useMasonryLayout';
 import { useImageActions } from './composables/useImageActions';
 import { useGalleryKeyboard } from './composables/useGalleryKeyboard';
+import { useAndroidBack, BACK_PRIORITY } from '@/composables/ui/useAndroidBack';
 
 // Import components
 import ImageGalleryHeader from './components/ImageGalleryHeader.vue';
@@ -49,6 +50,15 @@ const refreshRequested = ref(false);
 
 // Image viewer state
 const showImageViewer = ref(false);
+
+// The viewer is a layer above the gallery: back closes it there instead of letting
+// the press fall through to the app, which reset the gallery scope and dropped the
+// user out of the gallery with the viewer still open.
+useAndroidBack(() => {
+  if (!showImageViewer.value) return false;
+  closeImageViewer();
+  return true;
+}, BACK_PRIORITY.viewer);
 const selectedArticle = ref<Article | null>(null);
 const allImages = ref<string[]>([]);
 const currentImageIndex = ref(0);

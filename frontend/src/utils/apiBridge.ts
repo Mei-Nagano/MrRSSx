@@ -55,6 +55,49 @@ function fromBase64(value: string): Uint8Array<ArrayBuffer> {
 
 const NO_BODY_STATUS = new Set([204, 205, 304]);
 
+let requestSeq = 0;
+
+function abortError(): DOMException {
+  return new DOMException('The operation was aborted.', 'AbortError');
+}
+
+/**
+ * Waits for the native call unless the caller aborts first. On abort it tells Go
+ * to stop the same request, and rejects immediately with the same AbortError a
+ * real fetch produces so callers keep their existing cancellation handling.
+ */
+function raceAbort<T>(
+  work: Promise<T>,
+  requestID: string,
+  signal: AbortSignal | null
+): Promise<T> {
+  if (!signal) return work;
+  // An abort that landed before this listener existed would never fire it, so the
+  // native call would run to completion with nobody waiting for the answer.
+  if (signal.aborted) {
+    void Promise.resolve(Call.ByName('main.APIProxy.Cancel', requestID)).catch(() => {});
+    return Promise.reject(abortError());
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      // Fire and forget: the local wait must not depend on this round trip.
+      void Promise.resolve(Call.ByName('main.APIProxy.Cancel', requestID)).catch(() => {});
+      reject(abortError());
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (err) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(err);
+      }
+    );
+  });
+}
+
 /**
  * Routes same-origin `/api/` traffic through the native bridge. Returns true
  * when the shim was installed, so callers can log the active transport.
@@ -74,20 +117,36 @@ export function installAndroidApiBridge(): boolean {
       return originalFetch(input as RequestInfo, init);
     }
 
+    // A signal aborted before construction already throws inside `new Request`;
+    // this covers one aborted between construction and dispatch, so a cancelled
+    // request never reaches the native side.
+    if (request.signal.aborted) throw abortError();
+
     const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
     const buffer = hasBody ? await request.arrayBuffer() : null;
+
+    // Reading the body is async, so the caller can abort while it runs. Without
+    // this check the native call still went out and the request completed even
+    // though it had been cancelled.
+    if (request.signal.aborted) throw abortError();
 
     const headers: Record<string, string> = {};
     request.headers.forEach((value, key) => {
       headers[key] = value;
     });
 
-    const response = (await Call.ByName('main.APIProxy.Do', {
-      method: request.method,
-      path: url.pathname + url.search,
-      headers,
-      body: buffer && buffer.byteLength > 0 ? toBase64(new Uint8Array(buffer)) : '',
-    })) as ProxyResponse;
+    const requestID = `api-${++requestSeq}`;
+    const response = (await raceAbort(
+      Call.ByName('main.APIProxy.Do', {
+        request_id: requestID,
+        method: request.method,
+        path: url.pathname + url.search,
+        headers,
+        body: buffer && buffer.byteLength > 0 ? toBase64(new Uint8Array(buffer)) : '',
+      }) as Promise<ProxyResponse>,
+      requestID,
+      request.signal
+    )) as ProxyResponse;
 
     const status = response?.status ?? 500;
     const responseHeaders = response?.headers ?? {};

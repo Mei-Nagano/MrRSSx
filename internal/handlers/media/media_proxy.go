@@ -1209,6 +1209,11 @@ func rewriteLinkHref(content, baseURL string) string {
 			base64.StdEncoding.EncodeToString([]byte(resolvedURL)),
 			base64.StdEncoding.EncodeToString([]byte(baseURL)))
 
+		// A stylesheet link stays a stylesheet even without an extension in the URL.
+		if strings.Contains(strings.ToLower(match), "stylesheet") {
+			proxiedURL += "&ct=" + url.QueryEscape("text/css")
+		}
+
 		// Replace the URL in the match
 		// Use regex to replace href attribute value more reliably
 		if quote != "" {
@@ -1452,6 +1457,10 @@ func rewriteCSSURLs(css, baseURL string) string {
 			base64.StdEncoding.EncodeToString([]byte(resolvedURL)),
 			base64.StdEncoding.EncodeToString([]byte(baseURL)))
 
+		// The resource is a stylesheet whether or not its URL says so, and the WebView
+		// cannot tell from the bytes; carry the type across the proxy.
+		proxiedURL += "&ct=" + url.QueryEscape("text/css")
+
 		return fmt.Sprintf(`@import url("%s")`, proxiedURL)
 	})
 
@@ -1477,6 +1486,10 @@ func rewriteCSSURLs(css, baseURL string) string {
 		proxiedURL := fmt.Sprintf("/api/webpage/resource?url_b64=%s&referer_b64=%s",
 			base64.StdEncoding.EncodeToString([]byte(resolvedURL)),
 			base64.StdEncoding.EncodeToString([]byte(baseURL)))
+
+		// The resource is a stylesheet whether or not its URL says so, and the WebView
+		// cannot tell from the bytes; carry the type across the proxy.
+		proxiedURL += "&ct=" + url.QueryEscape("text/css")
 
 		return fmt.Sprintf(`@import url("%s")`, proxiedURL)
 	})

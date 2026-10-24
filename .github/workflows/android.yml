@@ -80,6 +80,9 @@ jobs:
             build/bin/MrRSS.apk
             build/bin/MrRSS-arm64-v8a.apk
           if-no-files-found: error
+          # The same APKs are published to the release below; this copy only serves
+          # the run page, so it does not need the default retention.
+          retention-days: 7
 
       # Tag builds attach the APKs to that tag's release (creating it only if
       # the desktop release workflow has not done so yet, without touching an
@@ -95,8 +98,11 @@ jobs:
             TAG="$GITHUB_REF_NAME"
             if gh release view "$TAG" > /dev/null 2>&1; then
               gh release upload "$TAG" "${FILES[@]}" --clobber
-            else
-              gh release create "$TAG" --title "$TAG" --generate-notes "${FILES[@]}"
+            elif ! gh release create "$TAG" --title "$TAG" --generate-notes "${FILES[@]}" 2>/dev/null; then
+              # release.yml runs on the same tag and may have created the release
+              # between the check and the create; upload into that one instead of
+              # failing the whole job.
+              gh release upload "$TAG" "${FILES[@]}" --clobber
             fi
           else
             NOTES="$(printf 'Android packages built by GitHub Actions from `%s`.\n\n- `MrRSS-arm64-v8a.apk` — phones (arm64-v8a), signed with the debug keystore\n- `MrRSS.apk` — universal (arm64-v8a + x86_64), emulators included\n\nInstall with `adb install -r MrRSS-arm64-v8a.apk`.' "$GITHUB_SHA")"

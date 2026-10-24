@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { withShortcut } from '@/composables/ui/shortcutBindings';
+import { PHONE_QUERY } from '@/composables/ui/usePhoneLayout';
 import {
   PhListDashes,
   PhSquaresFour,
@@ -111,6 +112,15 @@ function handleNavClick(item: NavItem) {
   // Clear any active saved filters when clicking main filter buttons
   clearAllFilters();
   store.setFilter(item.filterType);
+
+  // On the phone layout the article detail covers the list, so switching the
+  // bottom bar has to leave the article as well; otherwise the pressed target
+  // stayed hidden behind the open article. The split layout keeps its reading
+  // pane, which is the existing desktop convention.
+  if (typeof window !== 'undefined' && window.matchMedia(PHONE_QUERY).matches) {
+    store.currentArticleId = null;
+  }
+
   emit('select-filter', item.filterType);
 
   // Don't auto-expand feed panel when clicking nav items

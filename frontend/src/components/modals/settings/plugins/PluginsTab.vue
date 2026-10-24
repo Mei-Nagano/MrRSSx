@@ -5,6 +5,8 @@ import type { SettingsData } from '@/types/settings';
 import { useSettingsAutoSave } from '@/composables/core/useSettingsAutoSave';
 import { useI18n } from 'vue-i18n';
 import { TipBox } from '@/components/settings';
+import { usePhoneLayout } from '@/composables/ui/usePhoneLayout';
+import { isPluginVisible } from '@/utils/pluginPlatform';
 import ObsidianSettings from './ObsidianSettings.vue';
 import NotionSettings from './NotionSettings.vue';
 import SiYuanSettings from './SiYuanSettings.vue';
@@ -37,6 +39,10 @@ function handleUpdateSettings(updatedSettings: SettingsData) {
   emit('update:settings', updatedSettings);
 }
 const store = useAppStore();
+// Note-app integrations need a desktop filesystem or a local service, so the phone
+// settings page offers only the integrations that work with the feeds it shows.
+const isPhone = usePhoneLayout();
+const pluginVisible = (id: string) => isPluginVisible(id, isPhone.value);
 function readerState() {
   return JSON.stringify(
     ['freshrss', 'miniflux'].map((provider) =>
@@ -60,13 +66,13 @@ onBeforeUnmount(() => window.removeEventListener('settings-updated', handleSaved
   <div class="space-y-4 sm:space-y-6">
     <TipBox type="info" :title="t('common.warning.isInDevelopment')" />
 
-    <ObsidianSettings :settings="settings" @update:settings="handleUpdateSettings" />
+    <ObsidianSettings v-if="pluginVisible('obsidian')" :settings="settings" @update:settings="handleUpdateSettings" />
 
-    <NotionSettings :settings="settings" @update:settings="handleUpdateSettings" />
+    <NotionSettings v-if="pluginVisible('notion')" :settings="settings" @update:settings="handleUpdateSettings" />
 
-    <SiYuanSettings :settings="settings" @update:settings="handleUpdateSettings" />
+    <SiYuanSettings v-if="pluginVisible('siyuan')" :settings="settings" @update:settings="handleUpdateSettings" />
 
-    <ZoteroSettings :settings="settings" @update:settings="handleUpdateSettings" />
+    <ZoteroSettings v-if="pluginVisible('zotero')" :settings="settings" @update:settings="handleUpdateSettings" />
 
     <ReaderIntegrationSettings
       provider="freshrss"

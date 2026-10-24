@@ -116,3 +116,8 @@ desktop.ini
 *.bak
 *.orig
 *.rej
+# Verification scaffolding: probe scripts, fixture servers, screenshots and run
+# results are produced by hand against a live emulator or browser. The acceptance
+# ledger (docs/MOBILE_FOLO_ACCEPTANCE.zh.md) records what they showed; the artifacts
+# themselves stay local.
+docs/evidence/

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { defineComponent, h, nextTick, ref } from 'vue';
-import { installAndroidBackBridge, useAndroidBack, useDismissOnBack } from './useAndroidBack';
+import { installAndroidBackBridge, useAndroidBack, useDismissOnBack, BACK_PRIORITY } from './useAndroidBack';
 
 function mountWithHandler(handler: () => boolean, priority = 0) {
   const component = defineComponent({
@@ -106,5 +106,45 @@ describe('useDismissOnBack', () => {
     expect(window.__mrrssHandleBack?.()).toBe(true);
     expect(open.value).toBe(false);
     wrapper.unmount();
+  });
+
+  // An article opened from a feed, category, unread or favourites list covers
+  // that list, so back must close the article and keep the list scope. Keeping
+  // the article at the bottom of the ladder made back jump to All instead.
+  it('closes an open article before resetting the list scope', () => {
+    const calls: string[] = [];
+    // Registration order mirrors the app: the scope reset registers first at
+    // startup, the article when it is opened.
+    const resetScope = mountWithHandler(() => {
+      calls.push('reset-scope');
+      return true;
+    }, BACK_PRIORITY.view);
+    const closeArticle = mountWithHandler(() => {
+      calls.push('close-article');
+      return true;
+    }, BACK_PRIORITY.articleDetail);
+    installAndroidBackBridge();
+
+    expect(window.__mrrssHandleBack?.()).toBe(true);
+    expect(calls).toEqual(['close-article']);
+
+    closeArticle.unmount();
+    resetScope.unmount();
+  });
+
+  it('still resets the list scope when no article consumed the press', () => {
+    const calls: string[] = [];
+    const article = mountWithHandler(() => false, BACK_PRIORITY.articleDetail);
+    const resetScope = mountWithHandler(() => {
+      calls.push('reset-scope');
+      return true;
+    }, BACK_PRIORITY.view);
+    installAndroidBackBridge();
+
+    expect(window.__mrrssHandleBack?.()).toBe(true);
+    expect(calls).toEqual(['reset-scope']);
+
+    article.unmount();
+    resetScope.unmount();
   });
 });

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useArticleDateFormat } from '@/composables/article/useArticleDateFormat';
 import {
@@ -72,6 +72,16 @@ const bilibiliVideoUrl = computed(() => {
 });
 
 // Check media cache setting on mount
+// Escape is the desktop equivalent of the phone's back press. Without it the only
+// way out of the viewer was clicking the backdrop, and on a phone nothing at all
+// closed this layer from the keyboard.
+function handleEscape(event: KeyboardEvent) {
+  if (event.key !== 'Escape') return;
+  event.preventDefault();
+  emit('close');
+}
+onMounted(() => window.addEventListener('keydown', handleEscape));
+onUnmounted(() => window.removeEventListener('keydown', handleEscape));
 onMounted(async () => {
   mediaCacheEnabled.value = await isMediaCacheEnabled();
 });
