@@ -123,6 +123,15 @@ jobs:
             esac
           done
 
+  # One dispatch has to produce every platform, Android included; otherwise each
+  # release needed a second manual run of the APK workflow.
+  build-android:
+    name: Build android
+    needs: create-release
+    uses: ./.github/workflows/android.yml
+    permissions:
+      contents: write
+
   package-skills:
     name: Package Skills
     needs: create-release

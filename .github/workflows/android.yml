@@ -9,6 +9,9 @@ on:
   push:
     tags:
       - 'v*'
+  # Called by release.yml so a single dispatch produces every platform. On its own
+  # a manual release built only the desktop targets, and the APKs needed a second run.
+  workflow_call:
 
 jobs:
   build:
